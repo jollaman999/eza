@@ -5,22 +5,26 @@ Usage: eza [OPTIONS] [FILE]...
 META OPTIONS:
       --stdin    read file names from stdin
   -?, --help     Print help
-      --version  Print help
+      --version  Print version
 
 LAYOUT OPTIONS:
   -1, --oneline          display one entry per line
   -l, --long             display extended file metadata as a table
+  -g, --long-no-owner    like -l, but list the group instead of the owner
+  -o, --long-no-group    like -l, but do not list the group
       --grid             display entries as a grid (default)
-  -x, --across           sort the grid across, rather than downwards
-  -R, --recurse          recurse into directories
+  -C, --format-columns   display entries as a grid, listed down columns
+  -x, --across           display entries as a grid, listed across rows
+  -R, --recurse          recurse into directories [alias: --recursive]
       --tree             recurse into directories as a tree
       --level <DEPTH>    limit the depth of recursion
       --code[=<MODE>]    summarise lines of code by language, recursing the tree or git repo
       --follow-symlinks  drill down into symbolic links that point to directories
-  -w, --width <COLS>     set screen width in columns
+  -w, --width <COLS>     set screen width in columns, 0 means no limit
 
 DISPLAY OPTIONS:
-  -F, --classify [<WHEN>]          display type indicator by file names [possible values: always, auto, never]
+  -F                               display type indicator by file names (same as --classify=always)
+      --classify[=<WHEN>]          display type indicator by file names [possible values: always, auto, never]
   -L, --dereference                dereference symbolic links when displaying information
       --absolute [<absolute>]      display entries with their absolute path [possible values: on, off, follow]
       --color [<WHEN>]             When to use colours. [default: auto] [possible values: always, auto, never]
@@ -32,23 +36,32 @@ DISPLAY OPTIONS:
       --short-nix                  abbreviate Nix store hashes in file names and paths
 
 FILTERING OPTIONS:
-  -a, --all...               show hidden files. Use this twice to also show the '.' and '..' directories
-  -A, --almost-all           equivalent to --all; included for compatibility with `ls -A`
-  -d, --treat-dirs-as-files  treat directories as files; don't list their contents
+  -a, --all...               show hidden files and the '.' and '..' directories
+  -f, --unsorted-all         like -a, and do not sort
+  -A, --almost-all           show hidden files, but not '.' and '..'
+  -d, --treat-dirs-as-files  treat directories as files; don't list their contents [alias: --directory]
       --only-dirs            list only directories
       --only-files           list only files
       --show-symlinks        explicitly show symbolic links (with --only-dirs and --only-files)
       --no-symlinks          do not show symbolic links
-  -I, --ignore-glob <GLOBS>  glob patterns (pipe-separated) of files to ignore
+  -B, --ignore-backups       do not list entries ending with ~
+  -I, --ignore-glob <GLOBS>  glob patterns (pipe-separated) of files to ignore [alias: --ignore]
       --git-ignore           ignore files mentioned in '.gitignore'
 
 SORTING OPTIONS:
       --group-directories-first  list directories before other files
       --group-directories-last   list directories after other files
+  -t, --sort-time                sort by time, newest first (see --time, -c, -u)
+  -S, --sort-size                sort by file size, largest first
+  -U, --unsorted                 do not sort; list entries in directory order
+  -X, --sort-extension           sort alphabetically by entry extension
+  -v, --sort-version             natural sort of (version) numbers within names
+  -c, --ctime                    with -t: sort by changed time; with -l: show it; otherwise: sort by it
+  -u, --atime                    with -t: sort by accessed time; with -l: show it; otherwise: sort by it
       --sort <FIELD>             which field to sort by [default: name] [possible values:
-                                   name, Name, .name, .Name, ext, ext, created,
-                                   date, age, accessed, changed,
-                                   size, inode, type, none]
+                                   name, Name, .name, .Name, ext, Ext, extension, version, created,
+                                   date, age, accessed, changed, time (newest first),
+                                   size (largest first), inode, type, none]
   -r, --reverse                  reverse the sort order
 
 LONG VIEW OPTIONS:
@@ -57,15 +70,20 @@ LONG VIEW OPTIONS:
       --loc[=<MODE>]         add lines-of-code and language columns [modes: lines, percent, both]
       --octal-permissions    list each file's permission in octal format
       --links                list each file's number of hard links
+  -h, --human-readable       show file sizes with binary prefixes (same as --binary)
       --binary               show file sizes with binary prefixes
       --bytes                show file sizes in bytes, without any prefixes
       --total-size           show the size of a directory as the one of its content (unix only)
+  -s, --size                 list size of allocated file system blocks (same as --blocksize)
       --blocksize            list size of allocated file system blocks
       --group                list each file's group
+  -G, --no-group             do not list the group (overrides -g, --group)
       --smart-group          only show group if it has a different name from owner
+  -n, --numeric-uid-gid      like -l, but show user and group as their numeric IDs
       --numeric              show user and group as their numeric IDs
-      --time <FIELD>         which timestamp field to show [possible values:
-                               mod|modified, acc|accessed, ch|changed, cr|created]
+      --time <FIELD>         which timestamp field to show and sort by [possible values:
+                               mod|modified|mtime, acc|accessed|atime|access|use,
+                               ch|changed|ctime|status, cr|created|birth|creation]
       --modified             show the modified timestamp field (replace default field, combinable)
       --accessed             show the accessed timestamp field (replace default field, combinable)
       --changed              show the changed timestamp field (replace default field, combinable)
