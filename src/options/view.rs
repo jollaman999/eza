@@ -1310,7 +1310,7 @@ mod tests {
     fn deduce_color_scale_size_age_luminance_40_gradient() {
         assert_eq!(
             ColorScaleOptions::deduce(
-                &mock_cli(vec!["--color-scale", "size,age"]),
+                &mock_cli(vec!["--color-scale=size,age"]),
                 &MockVars::default()
             ),
             ColorScaleOptions {
@@ -1327,7 +1327,7 @@ mod tests {
         let mut vars = MockVars::default();
         vars.set(vars::EZA_MIN_LUMINANCE, &OsString::from("60"));
         assert_eq!(
-            ColorScaleOptions::deduce(&mock_cli(vec!["--color-scale", "size"]), &vars),
+            ColorScaleOptions::deduce(&mock_cli(vec!["--color-scale=size"]), &vars),
             ColorScaleOptions {
                 mode: ColorScaleMode::Gradient,
                 min_luminance: 60,
@@ -1343,7 +1343,7 @@ mod tests {
         vars.set(vars::EZA_MIN_LUMINANCE, &OsString::from("60"));
         assert_eq!(
             ColorScaleOptions::deduce(
-                &mock_cli(vec!["--color-scale", "age", "--color-scale-mode", "fixed"]),
+                &mock_cli(vec!["--color-scale=age", "--color-scale-mode", "fixed"]),
                 &vars
             ),
             ColorScaleOptions {

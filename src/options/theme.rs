@@ -149,7 +149,7 @@ mod tests {
         };
 
         assert_eq!(
-            UseColours::deduce(&mock_cli(vec!["--color", "never"]), &vars),
+            UseColours::deduce(&mock_cli(vec!["--color=never"]), &vars),
             UseColours::Never
         );
     }
@@ -161,7 +161,7 @@ mod tests {
         };
 
         assert_eq!(
-            UseColours::deduce(&mock_cli(vec!["--color", "always"]), &vars),
+            UseColours::deduce(&mock_cli(vec!["--color=always"]), &vars),
             UseColours::Always
         );
     }
@@ -173,7 +173,7 @@ mod tests {
         };
 
         assert_eq!(
-            UseColours::deduce(&mock_cli(vec!["--color", "auto"]), &vars),
+            UseColours::deduce(&mock_cli(vec!["--color=auto"]), &vars),
             UseColours::Automatic
         );
     }
