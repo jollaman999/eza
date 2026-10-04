@@ -109,6 +109,31 @@ mod tests {
     }
 
     #[test]
+    fn deduce_dir_action_as_file_ls_alias() {
+        for args in [vec!["-d"], vec!["--directory"], vec!["--list-dirs"]] {
+            assert_eq!(
+                DirAction::deduce(&mock_cli(args.clone()), false, false),
+                Ok(DirAction::AsFile),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_dir_action_recurse_ls_alias() {
+        for args in [vec!["-R"], vec!["--recursive"]] {
+            assert_eq!(
+                DirAction::deduce(&mock_cli(args.clone()), false, false),
+                Ok(DirAction::Recurse(RecurseOptions {
+                    tree: false,
+                    max_depth: None,
+                })),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
     fn deduce_dir_action_recurse() {
         assert_eq!(
             DirAction::deduce(&mock_cli(vec!["--recurse"]), false, false),

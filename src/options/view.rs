@@ -21,16 +21,60 @@ use crate::output::table::{
 use crate::output::time::TimeFormat;
 use crate::output::{Mode, TerminalWidth, View, code, details, grid};
 
-use super::filter::{TIME_ARGS, last_given};
+use super::filter::{TIME_ARGS, given, last_given};
 
 /// The options that turn on the long view: `--long`, and the `ls` options
 /// that imply it.
 const LONG_ARGS: &[&str] = &["long", "long-no-owner", "long-no-group", "numeric-uid-gid"];
 
-/// Whether one of the options that turn on the long view was given.
-pub(super) fn long_given(matches: &ArgMatches) -> bool {
-    LONG_ARGS.iter().any(|id| matches.get_flag(id))
+/// The `ls` options that pick the output format.
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
+enum Format {
+    Long,
+    Columns,
+    Across,
+    OneLine,
 }
+
+/// Picks the output format like `ls`: out of the long options, `-C` and
+/// `-x`, the last one given wins, and `-1` overrides `-C` and `-x` given
+/// before it but never the long view.
+fn format_given(matches: &ArgMatches) -> Option<Format> {
+    let last_index = |id: &str| {
+        if matches.get_flag(id) {
+            matches.indices_of(id).and_then(Iterator::max)
+        } else {
+            None
+        }
+    };
+    let long = LONG_ARGS.iter().filter_map(|id| last_index(id)).max();
+    let picked = [
+        (long, Format::Long),
+        (last_index("format-columns"), Format::Columns),
+        (last_index("across"), Format::Across),
+    ]
+    .into_iter()
+    .filter_map(|(index, format)| index.map(|index| (index, format)))
+    .max_by_key(|(index, _)| *index);
+
+    match (picked, last_index("oneline")) {
+        (Some((_, Format::Long)), _) => Some(Format::Long),
+        (Some((index, _)), Some(oneline)) if oneline > index => Some(Format::OneLine),
+        (Some((_, format)), _) => Some(format),
+        (None, Some(_)) => Some(Format::OneLine),
+        (None, None) => None,
+    }
+}
+
+/// Whether the long view is picked, by one of the options that turn it on
+/// given after `-C` and `-x`.
+pub(super) fn long_given(matches: &ArgMatches) -> bool {
+    format_given(matches) == Some(Format::Long)
+}
+
+/// The width that `-w 0` sets: no limit, but small enough that adding
+/// column separators to it doesn’t overflow.
+const NO_WIDTH_LIMIT: usize = usize::MAX / 2;
 
 /// The options that pick the file size format. The last one given wins.
 const SIZE_FORMAT_ARGS: &[&str] = &["human-readable", "binary", "bytes"];
@@ -63,9 +107,10 @@ impl View {
 impl Mode {
     /// Determine which viewing mode to use based on the user’s options.
     ///
-    /// As with the other options, arguments are scanned right-to-left and the
-    /// first flag found is matched, so `exa --oneline --long` will pick a
-    /// details view, and `exa --long --oneline` will pick the lines view.
+    /// Like `ls`, out of the long options, `-C` and `-x`, the last one given
+    /// wins, so `eza -lC` picks a grid view and `eza -Cl` a details view.
+    /// `-1` overrides `-C` and `-x` given before it, but not the long view,
+    /// so both `eza -1l` and `eza -l1` pick a details view.
     ///
     /// This is complicated a little by the fact that `--grid` and `--tree`
     /// can also combine with `--long`, so care has to be taken to use the
@@ -81,8 +126,8 @@ impl Mode {
             return Ok(Self::Code(code::Options { content }));
         }
 
-        let long = long_given(matches);
-        let oneline = matches.get_flag("oneline");
+        let format = format_given(matches);
+        let long = format == Some(Format::Long);
         let grid = matches.get_flag("grid");
         let tree = matches.get_flag("tree");
 
@@ -90,7 +135,7 @@ impl Mode {
             Self::strict_check_long_flags(matches)?;
         }
 
-        if !(long || oneline || grid || tree) {
+        if format.is_none() && !(grid || tree) {
             if is_tty {
                 let grid = grid::Options::deduce(matches);
                 return Ok(Self::Grid(grid));
@@ -119,12 +164,12 @@ impl Mode {
             return Ok(Self::Details(details));
         }
 
-        if oneline {
-            return Ok(Self::Lines);
+        match format {
+            Some(Format::OneLine) => Ok(Self::Lines),
+            Some(Format::Columns) => Ok(Self::Grid(grid::Options { across: false })),
+            Some(Format::Across) => Ok(Self::Grid(grid::Options { across: true })),
+            _ => Ok(Self::Grid(grid::Options::deduce(matches))),
         }
-
-        let grid = grid::Options::deduce(matches);
-        Ok(Self::Grid(grid))
     }
 
     // TODO: handle that with Clap
@@ -138,13 +183,12 @@ impl Mode {
             "links",
             "header",
             "blocksize",
-            "time",
             "group",
             "numeric",
             "mounts",
             "loc",
         ] {
-            if matches.contains_id(flag) {
+            if given(matches, flag) {
                 return Err(OptionsError::Useless(flag, false, "long"));
             }
         }
@@ -191,6 +235,8 @@ impl details::Options {
         if strict {
             if matches.get_flag("across") && !matches.get_flag("grid") {
                 return Err(OptionsError::Useless("across", true, "long"));
+            } else if matches.get_flag("format-columns") {
+                return Err(OptionsError::Useless("format-columns", true, "long"));
             } else if matches.get_flag("oneline") {
                 return Err(OptionsError::Useless("one-line", true, "long"));
             }
@@ -214,7 +260,7 @@ impl TerminalWidth {
             if width >= 1 {
                 Ok(Set(width))
             } else {
-                Ok(Automatic)
+                Ok(Set(NO_WIDTH_LIMIT))
             }
         } else if let Some(columns) = vars.get(vars::COLUMNS).and_then(|s| s.into_string().ok()) {
             match columns.parse() {
@@ -587,12 +633,150 @@ impl ColorScaleOptions {
 
 #[cfg(test)]
 mod tests {
-    use crate::options::parser::test::mock_cli;
+    use crate::options::parser::test::{mock_cli, mock_cli_try};
     use crate::options::vars::test::MockVars;
     use std::ffi::OsString;
     use std::num::ParseIntError;
 
     use super::*;
+
+    fn mode(args: Vec<&str>, is_tty: bool) -> Mode {
+        Mode::deduce(&mock_cli(args), &MockVars::default(), is_tty, false).unwrap()
+    }
+
+    fn is_long(mode: &Mode) -> bool {
+        matches!(mode, Mode::Details(details::Options { table: Some(_), .. }))
+    }
+
+    #[test]
+    fn deduce_mode_oneline_does_not_override_long() {
+        for args in [
+            vec!["-l1"],
+            vec!["-1l"],
+            vec!["-1", "--long"],
+            vec!["--oneline", "-g"],
+            vec!["-o1"],
+            vec!["-n", "-1"],
+            vec!["-C", "-l", "-1"],
+        ] {
+            assert!(is_long(&mode(args.clone(), true)), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_mode_last_format_wins() {
+        let columns = Mode::Grid(grid::Options { across: false });
+        let across = Mode::Grid(grid::Options { across: true });
+        for (args, expected) in [
+            (vec!["-lC"], &columns),
+            (vec!["-lx"], &across),
+            (vec!["-gC"], &columns),
+            (vec!["-n", "-x"], &across),
+            (vec!["-C"], &columns),
+            (vec!["--format-columns"], &columns),
+            (vec!["-x"], &across),
+            (vec!["-Cx"], &across),
+            (vec!["-xC"], &columns),
+            (vec!["-1C"], &columns),
+            (vec!["-1x"], &across),
+            (vec!["-x", "--grid"], &across),
+            (vec!["-C", "--across"], &across),
+        ] {
+            assert_eq!(&mode(args.clone(), false), expected, "{args:?}");
+        }
+        for args in [vec!["-Cl"], vec!["-xl"], vec!["-C", "-g"], vec!["-x", "-n"]] {
+            assert!(is_long(&mode(args.clone(), false)), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_mode_oneline_overrides_grid() {
+        for args in [
+            vec!["-C1"],
+            vec!["-x1"],
+            vec!["-lC1"],
+            vec!["-1"],
+            vec!["-1", "--grid"],
+        ] {
+            assert_eq!(mode(args.clone(), true), Mode::Lines, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_mode_long_grid_and_tree() {
+        assert!(matches!(
+            mode(vec!["-l", "--grid"], true),
+            Mode::GridDetails(_)
+        ));
+        assert!(matches!(
+            mode(vec!["--grid", "-l"], true),
+            Mode::GridDetails(_)
+        ));
+        assert!(is_long(&mode(vec!["-l", "--tree"], true)));
+        assert!(matches!(
+            mode(vec!["--tree"], true),
+            Mode::Details(details::Options { table: None, .. })
+        ));
+    }
+
+    #[test]
+    fn deduce_mode_default() {
+        assert_eq!(
+            mode(vec![""], true),
+            Mode::Grid(grid::Options { across: false })
+        );
+        assert_eq!(mode(vec![""], false), Mode::Lines);
+    }
+
+    fn strict_mode(args: Vec<&str>) -> Result<Mode, OptionsError> {
+        Mode::deduce(&mock_cli(args), &MockVars::default(), false, true)
+    }
+
+    #[test]
+    fn deduce_mode_strict_without_long_flags() {
+        for args in [
+            vec![""],
+            vec!["-1"],
+            vec!["-1", "--time=atime"],
+            vec!["-1", "-t", "--time", "ctime"],
+            vec!["-1hsG"],
+            vec!["-C"],
+            vec!["-x"],
+        ] {
+            assert!(strict_mode(args.clone()).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_mode_strict_useless_long_flags() {
+        for (args, flag) in [
+            (vec!["-1", "--binary"], "binary"),
+            (vec!["-1", "--bytes"], "bytes"),
+            (vec!["-1", "--inode"], "inode"),
+            (vec!["-1", "--header"], "header"),
+            (vec!["-1", "--group"], "group"),
+            (vec!["-1", "--loc"], "loc"),
+            (vec!["-l", "-C", "--inode"], "inode"),
+        ] {
+            assert_eq!(
+                strict_mode(args.clone()),
+                Err(OptionsError::Useless(flag, false, "long")),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_details_long_strict_format_columns() {
+        assert_eq!(
+            details::Options::deduce_long(
+                &mock_cli(vec!["-C", "--long"]),
+                &MockVars::default(),
+                true
+            ),
+            Err(OptionsError::Useless("format-columns", true, "long"))
+        );
+    }
 
     #[test]
     fn deduce_time_types_no_time() {
@@ -1302,6 +1486,24 @@ mod tests {
             TerminalWidth::deduce(&mock_cli(vec!["--width", "80"]), &MockVars::default()),
             Ok(Set(80))
         );
+    }
+
+    #[test]
+    fn deduce_terminal_width_zero_is_no_limit() {
+        for args in [vec!["-w", "0"], vec!["--width=0"]] {
+            assert_eq!(
+                TerminalWidth::deduce(&mock_cli(args.clone()), &MockVars::default()),
+                Ok(Set(NO_WIDTH_LIMIT)),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_terminal_width_not_a_number() {
+        for args in [vec!["-w", "x"], vec!["-w", "-1"], vec!["--width="]] {
+            assert!(mock_cli_try(args.clone()).is_err(), "{args:?}");
+        }
     }
 
     #[test]

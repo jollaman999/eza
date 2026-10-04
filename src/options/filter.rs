@@ -35,7 +35,7 @@ pub(super) const TIME_ARGS: &[&str] = &["time", "ctime", "atime"];
 
 /// Whether the option was given on the command line, rather than taking its
 /// default value.
-fn given(matches: &ArgMatches, id: &str) -> bool {
+pub(super) fn given(matches: &ArgMatches, id: &str) -> bool {
     matches.value_source(id) == Some(ValueSource::CommandLine)
 }
 
@@ -223,18 +223,30 @@ impl DotFilter {
 
 impl IgnorePatterns {
     /// Determines the set of glob patterns to use based on the
-    /// `--ignore-glob` argument’s value. This is a list of strings
-    /// separated by pipe (`|`) characters, given in any order.
+    /// `--ignore-glob` arguments’ values. Each is a list of strings
+    /// separated by pipe (`|`) characters, given in any order, and like
+    /// `ls`, giving the option more than once adds to the list.
+    /// `--ignore-backups` adds the `*~` pattern.
     pub fn deduce(matches: &ArgMatches) -> Result<Self, OptionsError> {
+        let mut inputs: Vec<&str> = matches
+            .get_many::<String>("ignore-glob")
+            .into_iter()
+            .flatten()
+            .flat_map(|globs| globs.split('|'))
+            .collect();
+        if matches.get_flag("ignore-backups") {
+            inputs.push("*~");
+        }
+
         // If there are no inputs, we return a set of patterns that doesn’t
         // match anything, rather than, say, `None`.
-        let Some(inputs) = matches.get_one::<String>("ignore-glob") else {
+        if inputs.is_empty() {
             return Ok(Self::empty());
-        };
+        }
 
         // Awkwardly, though, a glob pattern can be invalid, and we need to
         // deal with invalid patterns somehow.
-        let (patterns, mut errors) = Self::parse_from_iter(inputs.split('|'));
+        let (patterns, mut errors) = Self::parse_from_iter(inputs);
 
         // It can actually return more than one glob error,
         // but we only use one. (TODO)
@@ -292,6 +304,40 @@ mod tests {
             IgnorePatterns::deduce(&mock_cli(vec!["--ignore-glob", "*.o"])),
             Ok(res)
         );
+    }
+
+    #[test]
+    fn deduce_ignore_patterns_accumulate() {
+        let (res, _) = IgnorePatterns::parse_from_iter(["*.o", "*.a", "*.txt"]);
+        for args in [
+            vec!["-I", "*.o|*.a", "-I", "*.txt"],
+            vec!["--ignore=*.o|*.a", "--ignore-glob", "*.txt"],
+            vec!["--ignore", "*.o", "--ignore", "*.a", "-I*.txt"],
+        ] {
+            assert_eq!(
+                IgnorePatterns::deduce(&mock_cli(args.clone())),
+                Ok(res.clone()),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_ignore_patterns_backups() {
+        let (backups, _) = IgnorePatterns::parse_from_iter(["*~"]);
+        assert_eq!(IgnorePatterns::deduce(&mock_cli(vec!["-B"])), Ok(backups));
+
+        let (both, _) = IgnorePatterns::parse_from_iter(["*.o", "*~"]);
+        for args in [
+            vec!["-B", "-I", "*.o"],
+            vec!["--ignore-backups", "--ignore=*.o"],
+        ] {
+            assert_eq!(
+                IgnorePatterns::deduce(&mock_cli(args.clone())),
+                Ok(both.clone()),
+                "{args:?}"
+            );
+        }
     }
 
     #[test]

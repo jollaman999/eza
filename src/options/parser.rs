@@ -47,8 +47,9 @@ pub fn get_command() -> clap::Command {
         .arg(arg!(-g --"long-no-owner" "like -l, but list the group instead of the owner"))
         .arg(arg!(-o --"long-no-group" "like -l, but do not list the group"))
         .arg(arg!(--grid "display entries as a grid (default)"))
-        .arg(arg!(-x --across "sort the grid across, rather than downwards"))
-        .arg(arg!(-R --recurse "recurse into directories"))
+        .arg(arg!(-C --"format-columns" "display entries as a grid, listed down columns"))
+        .arg(arg!(-x --across "display entries as a grid, listed across rows"))
+        .arg(arg!(-R --recurse "recurse into directories").visible_alias("recursive"))
         .arg(arg!(--tree "recurse into directories as a tree"))
         .arg(arg!(--level <DEPTH> "limit the depth of recursion")
             .value_parser(value_parser!(usize)))
@@ -59,14 +60,19 @@ pub fn get_command() -> clap::Command {
             .default_missing_value("both")
             .hide_possible_values(true))
         .arg(arg!(--"follow-symlinks" "drill down into symbolic links that point to directories"))
-        .arg(arg!(-w --width <COLS> "set screen width in columns")
+        .arg(arg!(-w --width <COLS> "set screen width in columns, 0 means no limit")
             .value_parser(value_parser!(usize)))
 
         .next_help_heading("DISPLAY OPTIONS")
-        .arg(arg!(-F --classify <WHEN> "display type indicator by file names")
+        .arg(clap::Arg::new("classify-always")
+            .short('F')
+            .action(clap::ArgAction::SetTrue)
+            .help("display type indicator by file names (same as --classify=always)"))
+        .arg(arg!(--classify <WHEN> "display type indicator by file names")
             .num_args(0..=1)
+            .require_equals(true)
             .value_parser(value_parser!(ShowWhen))
-            .default_missing_value("auto"))
+            .default_missing_value("always"))
         .arg(arg!(-L --dereference  "dereference symbolic links when displaying information"))
         .arg(arg!(--absolute "display entries with their absolute path")
             .num_args(0..=1)
@@ -106,13 +112,17 @@ pub fn get_command() -> clap::Command {
         .arg(arg!(-f --"unsorted-all" "like -a, and do not sort"))
         .arg(arg!(-A --"almost-all" "show hidden files, but not '.' and '..'"))
         .arg(arg!(-d --"treat-dirs-as-files" "treat directories as files; don't list their contents")
+            .visible_alias("directory")
             .alias("list-dirs") // TODO: compat alias to remove (above flag published in v0.23.4 / 2025-10-03)
             .conflicts_with_all(["recurse", "tree"]))
         .arg(arg!(--"only-dirs" "list only directories"))
         .arg(arg!(--"only-files" "list only files"))
         .arg(arg!(--"show-symlinks" "explicitly show symbolic links (with --only-dirs and --only-files)"))
         .arg(arg!(--"no-symlinks" "do not show symbolic links"))
-        .arg(arg!(-I --"ignore-glob" <GLOBS> "glob patterns (pipe-separated) of files to ignore"))
+        .arg(arg!(-B --"ignore-backups" "do not list entries ending with ~"))
+        .arg(arg!(-I --"ignore-glob" <GLOBS> "glob patterns (pipe-separated) of files to ignore")
+            .visible_alias("ignore")
+            .action(clap::ArgAction::Append))
         .arg(arg!(--"git-ignore" "ignore files mentioned in '.gitignore'"))
 
         .next_help_heading("SORTING OPTIONS")
@@ -179,7 +189,32 @@ pub fn get_command() -> clap::Command {
         .arg(arg!(--"no-user" "suppress the user field"))
         .arg(arg!(--"no-time" "suppress the time field"))
         .arg(arg!(--"no-git" "suppress Git fields (overrides --git, --git-repos, --git-repos-no-status)"))
+
+        .arg(arg!(-T --tabsize <COLS>).hide(true))
+        .arg(arg!(-D --dired).hide(true))
+        .arg(arg!(-H --"dereference-command-line").hide(true))
+        .arg(arg!(-m --"format-commas").hide(true))
+        .arg(arg!(-b --escape).hide(true))
+        .arg(arg!(-Q --"quote-name").hide(true))
+        .arg(arg!(-N --literal).hide(true))
+        .arg(arg!(-q --"hide-control-chars").hide(true))
+        .arg(arg!(-p --"indicator-slash").hide(true))
+        .arg(arg!(-k --kibibytes).hide(true))
 }
+
+/// The `ls` options that eza does not support. Giving one is an error.
+pub const UNSUPPORTED_ARGS: &[(char, &str)] = &[
+    ('T', "tabsize"),
+    ('D', "dired"),
+    ('H', "dereference-command-line"),
+    ('m', "format-commas"),
+    ('b', "escape"),
+    ('Q', "quote-name"),
+    ('N', "literal"),
+    ('q', "hide-control-chars"),
+    ('p', "indicator-slash"),
+    ('k', "kibibytes"),
+];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShowWhen {

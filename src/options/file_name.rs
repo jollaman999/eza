@@ -4,6 +4,7 @@
 // SPDX-FileCopyrightText: 2023-2024 Christina Sørensen, eza contributors
 // SPDX-FileCopyrightText: 2014 Benjamin Sago
 // SPDX-License-Identifier: MIT
+use crate::options::filter::last_given;
 use crate::options::parser::ShowWhen;
 use crate::options::vars::{self, Vars};
 use crate::options::{NumberSource, OptionsError};
@@ -40,7 +41,11 @@ impl Options {
 }
 
 impl Classify {
+    /// Like `ls`, `-F` is `--classify=always`, and the last of the two wins.
     fn deduce(matches: &ArgMatches) -> Self {
+        if last_given(matches, &["classify", "classify-always"]) == Some("classify-always") {
+            return Self::AddFileIndicators;
+        }
         match matches.get_one("classify") {
             Some(ShowWhen::Auto) => Self::AutomaticAddFileIndicators,
             Some(ShowWhen::Always) => Self::AddFileIndicators,
@@ -120,10 +125,60 @@ mod tests {
 
     #[test]
     fn deduce_classify_file_indicators() {
-        assert_eq!(
-            Classify::deduce(&mock_cli(vec!["--classify"])),
-            Classify::AutomaticAddFileIndicators
-        );
+        for args in [
+            vec!["--classify"],
+            vec!["--classify=always"],
+            vec!["-F"],
+            vec!["-1F"],
+            vec!["--classify=never", "-F"],
+        ] {
+            assert_eq!(
+                Classify::deduce(&mock_cli(args.clone())),
+                Classify::AddFileIndicators,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_classify_when() {
+        for (args, classify) in [
+            (
+                vec!["--classify=auto"],
+                Classify::AutomaticAddFileIndicators,
+            ),
+            (vec!["--classify=never"], Classify::JustFilenames),
+            (vec!["-F", "--classify=never"], Classify::JustFilenames),
+            (
+                vec!["-F", "--classify=auto"],
+                Classify::AutomaticAddFileIndicators,
+            ),
+        ] {
+            assert_eq!(
+                Classify::deduce(&mock_cli(args.clone())),
+                classify,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_classify_takes_no_separate_value() {
+        for args in [vec!["-F", "dir"], vec!["--classify", "dir"]] {
+            let cli = mock_cli(args.clone());
+            assert_eq!(
+                cli.get_many::<std::ffi::OsString>("FILE")
+                    .unwrap()
+                    .collect::<Vec<_>>(),
+                ["dir"],
+                "{args:?}"
+            );
+            assert_eq!(
+                Classify::deduce(&cli),
+                Classify::AddFileIndicators,
+                "{args:?}"
+            );
+        }
     }
 
     #[test]

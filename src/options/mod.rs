@@ -75,6 +75,7 @@
 //! it’s clear what the user wants.
 
 use clap::ArgMatches;
+use clap::parser::ValueSource;
 
 use crate::fs::dir_action::DirAction;
 use crate::fs::filter::{FileFilter, GitIgnore};
@@ -158,6 +159,14 @@ impl Options {
                 "Options --git and --git-ignore can't be used because `git` feature was disabled in this build of exa",
             )));
         }
+        if let Some((short, long)) = parser::UNSUPPORTED_ARGS
+            .iter()
+            .find(|(_, long)| matches.value_source(long) == Some(ValueSource::CommandLine))
+        {
+            return Err(OptionsError::Unsupported(format!(
+                "Option -{short} (--{long}) is not supported"
+            )));
+        }
         let strict = vars
             .get_with_fallback(vars::EXA_STRICT, vars::EZA_STRICT)
             .is_some();
@@ -175,5 +184,76 @@ impl Options {
             theme,
             stdin,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::parser::test::{mock_cli, mock_cli_try};
+    use crate::options::vars::test::MockVars;
+
+    fn deduce_error(args: Vec<&str>) -> Option<OptionsError> {
+        Options::deduce(&mock_cli(args), &MockVars::default()).err()
+    }
+
+    #[test]
+    fn deduce_unsupported_ls_options() {
+        for (args, message) in [
+            (vec!["-T", "4"], "Option -T (--tabsize) is not supported"),
+            (
+                vec!["--tabsize=4"],
+                "Option -T (--tabsize) is not supported",
+            ),
+            (vec!["-D"], "Option -D (--dired) is not supported"),
+            (
+                vec!["-H"],
+                "Option -H (--dereference-command-line) is not supported",
+            ),
+            (vec!["-m"], "Option -m (--format-commas) is not supported"),
+            (vec!["-b"], "Option -b (--escape) is not supported"),
+            (vec!["-Q"], "Option -Q (--quote-name) is not supported"),
+            (vec!["-N"], "Option -N (--literal) is not supported"),
+            (
+                vec!["-q"],
+                "Option -q (--hide-control-chars) is not supported",
+            ),
+            (vec!["-p"], "Option -p (--indicator-slash) is not supported"),
+            (vec!["-k"], "Option -k (--kibibytes) is not supported"),
+            (vec!["-1k"], "Option -k (--kibibytes) is not supported"),
+            (
+                vec!["--kibibytes"],
+                "Option -k (--kibibytes) is not supported",
+            ),
+        ] {
+            assert_eq!(
+                deduce_error(args.clone()),
+                Some(OptionsError::Unsupported(String::from(message))),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_tabsize_needs_a_value() {
+        assert!(mock_cli_try(vec!["-T"]).is_err());
+    }
+
+    #[test]
+    fn deduce_supported_options_are_not_unsupported() {
+        for args in [
+            vec!["-1"],
+            vec!["--no-quotes"],
+            vec!["--binary"],
+            vec!["-L"],
+        ] {
+            assert_eq!(deduce_error(args.clone()), None, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_files_input_ignores_tty() {
+        let options = Options::deduce(&mock_cli(vec!["-1"]), &MockVars::default()).unwrap();
+        assert_eq!(options.stdin, FilesInput::Args);
     }
 }
