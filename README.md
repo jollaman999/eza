@@ -6,31 +6,17 @@ SPDX-License-Identifier: EUPL-1.2
 -->
 
 <div align="center">
-<div align="center" markdown="1">
-   <sup>Special thanks to:</sup>
-   <br>
-   <br>
-   <a href="https://www.warp.dev/eza">
-      <img alt="Warp sponsorship" width="400" src="https://github.com/user-attachments/assets/ab8dd143-b0fd-4904-bdc5-dd7ecac94eae">
-   </a>
-
-### [Warp, the AI terminal for developers](https://www.warp.dev/eza)
-[Available for MacOS, Linux, & Windows](https://www.warp.dev/eza)<br>
-
-</div>
     
 # eza
 
 A modern replacement for ls.
 
-<a href="https://matrix.to/#/#eza-community:gitter.im"><img alt="Gitter" src="https://img.shields.io/gitter/room/eza-community/eza?logo=element&link=https%3A%2F%2Fapp.gitter.im%2F%23%2Froom%2F%23eza%3Agitter.im&link=Gitter%20matrix%20room%20for%20Eza" width=200></a>
+This is a fork of [eza-community/eza](https://github.com/eza-community/eza) whose one-letter options mean the same as GNU `ls`, so it can stand in for `ls`.
 
 [![Built with Nix](https://img.shields.io/badge/Built_With-Nix-5277C3.svg?logo=nixos&labelColor=73C3D5)](https://nixos.org)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 
-[![Unit tests](https://github.com/eza-community/eza/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/eza-community/eza/actions/workflows/unit-tests.yml)
-[![Crates.io](https://img.shields.io/crates/v/eza?link=https%3A%2F%2Fcrates.io%2Fcrates%2Feza)](https://crates.io/crates/eza)
-![Crates.io](https://img.shields.io/crates/l/eza?link=https%3A%2F%2Fgithub.com%2Feza-community%2Feza%2Fblob%2Fmain%2FLICENCE)
+[![Unit tests](https://github.com/jollaman999/eza/actions/workflows/unit-tests.yml/badge.svg)](https://github.com/jollaman999/eza/actions/workflows/unit-tests.yml)
 
 </div>
 
@@ -73,18 +59,15 @@ Like seriously, we have a lot of good stuff.
 
 If you already have Nix setup with flake support, you can try out eza with the `nix run` command:
 
-    nix run github:eza-community/eza
+    nix run github:jollaman999/eza
 
 Nix will build eza and run it.
 
-If you want to pass arguments this way, use e.g. `nix run github:eza-community/eza -- -ol`.
+If you want to pass arguments this way, use e.g. `nix run github:jollaman999/eza -- -ol`.
 
 # Installation
 
-eza is available for Windows, macOS and Linux. Platform and distribution
-specific installation instructions can be found in [INSTALL.md](INSTALL.md).
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/eza.svg?columns=3)](https://repology.org/project/eza/versions)
+The `eza` packages in distributions, Homebrew, Winget and crates.io are upstream eza, which does not have the `ls`-compatible options. Install this fork from its [releases](https://github.com/jollaman999/eza/releases) or build it with Cargo, as described in [INSTALL.md](INSTALL.md).
 
 ---
 
@@ -228,8 +211,8 @@ These `ls` options give a "not supported" error instead of being silently ignore
 
 
 See the `man` pages for further documentation of usage. They are available
-- online [in the repo](https://github.com/eza-community/eza/tree/main/man)
-- in your terminal via `man eza`, as of version [`[0.18.13] - 2024-04-25`](https://github.com/eza-community/eza/blob/main/CHANGELOG.md#01813---2024-04-25)
+- online [in the repo](https://github.com/jollaman999/eza/tree/main/man)
+- in your terminal via `man eza`, as of version [`[0.18.13] - 2024-04-25`](https://github.com/jollaman999/eza/blob/main/CHANGELOG.md#01813---2024-04-25)
 </details>
 
 
@@ -248,7 +231,7 @@ Check out the themes available in the official [eza-themes](https://github.com/e
 An example theme file is available in `docs/theme.yml`, and needs to either be placed in a directory specified by the 
 environment variable `EZA_CONFIG_DIR`, or will looked for by default in `$XDG_CONFIG_HOME/eza`.
 
-Full details are available on the [man page](https://github.com/eza-community/eza/tree/main/man/eza_colors-explanation.5.md) and an example theme file is included [here](https://github.com/eza-community/eza/tree/main/docs/theme.yml)
+Full details are available on the [man page](https://github.com/jollaman999/eza/tree/main/man/eza_colors-explanation.5.md) and an example theme file is included [here](https://github.com/jollaman999/eza/tree/main/docs/theme.yml)
 
 </details>
 
@@ -256,9 +239,8 @@ Full details are available on the [man page](https://github.com/eza-community/ez
 # Hacking on eza
 
 If you wanna contribute to eza, firstly, you're expected to follow our 
-[code of conduct](https://github.com/eza-community/eza/blob/main/CODE_OF_CONDUCT.md). 
+[code of conduct](https://github.com/jollaman999/eza/blob/main/CODE_OF_CONDUCT.md). 
 After having understood the code of conduct, you can have a look at our
-[CONTRIBUTING.md](https://github.com/eza-community/eza/blob/main/CONTRIBUTING.md) 
+[CONTRIBUTING.md](https://github.com/jollaman999/eza/blob/main/CONTRIBUTING.md) 
 for more info about actual hacking.
 
-[![Star History Chart](https://api.star-history.com/svg?repos=eza-community/eza&type=Date)](https://star-history.com/#eza-community/eza&Date)
