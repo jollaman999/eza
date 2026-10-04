@@ -6,6 +6,29 @@ SPDX-License-Identifier: EUPL-1.2
 -->
 # Changelog
 
+## [0.24.0] - 2026-10-04
+
+### Features
+
+- [**breaking**] Free short flags that clash with ls
+- [**breaking**] Make -a show . and .. like ls -a
+- [**breaking**] Add ls sort flags -t -S -U -X -v -c -u -f
+- Add ls size and column flags -h -s -g -o -G -n
+- [**breaking**] Match remaining ls options and reject unsupported ones
+- Show -s and -Z outside long view and let -d win over -R like ls
+
+### Bug Fixes
+
+- Describe --version as printing the version
+
+### Documentation
+
+- Document the ls-compatible options
+
+### Build
+
+- Update dependencies within semver ranges
+
 ## [0.23.5] - 2026-07-09
 
 ### Bug Fixes
