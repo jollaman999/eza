@@ -140,7 +140,7 @@ The default behavior (‘`automatic`’ or ‘`auto`’) is to colorize the outp
 
 Manually setting this option overrides `NO_COLOR` environment.
 
-`--color-scale`
+`--color-scale[=FIELDS]`
 : highlight levels of `field` distinctly.
 Use comma(,) separated list of all, age, size
 
