@@ -85,36 +85,38 @@ impl Default for SortField {
 }
 
 impl DotFilter {
-    /// Determines the dot filter based on how many `--all` options were
-    /// given: one will show dotfiles, but two will show `.` and `..` too.
-    /// --almost-all is equivalent to --all, included for compatibility with
-    /// `ls -A`.
+    /// Determines the dot filter the way `ls` does: `--all` shows dotfiles
+    /// together with `.` and `..`, and `--almost-all` shows dotfiles only.
+    /// Giving `--all` more than once is the same as giving it once.
     ///
-    /// It also checks for the `--tree` option, because of a special case
-    /// where `--tree --all --all` won’t work: listing the parent directory
-    /// in tree mode would loop onto itself!
+    /// When both are given, the one that comes last on the command line wins,
+    /// and strict mode rejects the combination.
     ///
-    /// `--almost-all` binds stronger than multiple `--all` as we currently do not take the order
-    /// of arguments into account and it is the safer option (does not clash with `--tree`)
+    /// It also checks for the `--tree` option, because listing the parent
+    /// directory in tree mode would loop onto itself, so `--all` only shows
+    /// dotfiles there.
     pub fn deduce(matches: &ArgMatches, strict: bool) -> Result<Self, OptionsError> {
-        let all_count = matches.get_count("all");
+        let has_all = matches.get_count("all") > 0;
         let has_almost_all = matches.get_flag("almost-all");
 
-        match (all_count, has_almost_all) {
-            (0, false) => Ok(Self::JustFiles),
-
-            // either a single --all or at least one --almost-all is given
-            (1, _) | (0, true) => Ok(Self::Dotfiles),
-            // more than one --all
-            (c, _) => {
-                if matches.get_flag("tree") {
-                    Err(OptionsError::TreeAllAll)
-                } else if strict && c > 2 {
-                    Err(OptionsError::Conflict("all", "all"))
-                } else {
-                    Ok(Self::DotfilesAndDots)
+        let all_wins = match (has_all, has_almost_all) {
+            (false, false) => return Ok(Self::JustFiles),
+            (true, false) => true,
+            (false, true) => false,
+            (true, true) => {
+                if strict {
+                    return Err(OptionsError::Conflict("all", "almost-all"));
                 }
+                let last_all = matches.indices_of("all").and_then(Iterator::max);
+                let last_almost_all = matches.index_of("almost-all");
+                last_all > last_almost_all
             }
+        };
+
+        if all_wins && !matches.get_flag("tree") {
+            Ok(Self::DotfilesAndDots)
+        } else {
+            Ok(Self::Dotfiles)
         }
     }
 }
@@ -211,15 +213,23 @@ mod tests {
     }
 
     #[test]
-    fn deduce_dot_filter_dotfiles() {
+    fn deduce_dot_filter_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
         assert_eq!(
             DotFilter::deduce(&mock_cli(vec!["--all"]), false),
-            Ok(DotFilter::Dotfiles)
+            Ok(DotFilter::DotfilesAndDots)
         );
     }
 
     #[test]
-    fn deduce_dot_filter_dotfiles_and_dots() {
+    fn deduce_dot_filter_all_twice() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-aa"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
         assert_eq!(
             DotFilter::deduce(&mock_cli(vec!["--all", "--all"]), false),
             Ok(DotFilter::DotfilesAndDots)
@@ -227,26 +237,102 @@ mod tests {
     }
 
     #[test]
-    fn deduce_dot_filter_tree_all_all() {
+    fn deduce_dot_filter_all_thrice() {
         assert_eq!(
-            DotFilter::deduce(&mock_cli(vec!["--all", "--all", "--tree"]), false),
-            Err(OptionsError::TreeAllAll)
+            DotFilter::deduce(&mock_cli(vec!["-aaa"]), false),
+            Ok(DotFilter::DotfilesAndDots)
         );
     }
 
     #[test]
-    fn deduce_dot_filter_all_all() {
+    fn deduce_dot_filter_all_thrice_strict() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-aaa"]), true),
+            Ok(DotFilter::DotfilesAndDots)
+        );
         assert_eq!(
             DotFilter::deduce(&mock_cli(vec!["--all", "--all", "--all"]), true),
-            Err(OptionsError::Conflict("all", "all"))
+            Ok(DotFilter::DotfilesAndDots)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_tree_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--tree", "-a"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_tree_all_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--tree", "-aa"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--all", "--all", "--tree"]), true),
+            Ok(DotFilter::Dotfiles)
         );
     }
 
     #[test]
     fn deduce_dot_filter_almost_all() {
         assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+        assert_eq!(
             DotFilter::deduce(&mock_cli(vec!["--almost-all"]), false),
             Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_tree_almost_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--tree", "-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_all_then_almost_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a", "-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-aa", "-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_almost_all_then_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A", "-a"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a", "-A", "-a"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A", "-a", "-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_all_almost_all_strict() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a", "-A"]), true),
+            Err(OptionsError::Conflict("all", "almost-all"))
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A", "-a"]), true),
+            Err(OptionsError::Conflict("all", "almost-all"))
         );
     }
 

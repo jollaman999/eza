@@ -31,9 +31,6 @@ pub enum OptionsError {
     /// are not present.
     Useless2(&'static str, &'static str, &'static str),
 
-    /// A very specific edge case where --tree can’t be used with --all twice.
-    TreeAllAll,
-
     /// A numeric option was given that failed to be parsed as a number.
     FailedParse(String, NumberSource, ParseIntError),
 
@@ -78,7 +75,6 @@ impl fmt::Display for OptionsError {
             Self::Useless(a, false, b)       => write!(f, "Option {a} is useless without option {b}"),
             Self::Useless(a, true, b)        => write!(f, "Option {a} is useless given option {b}"),
             Self::Useless2(a, b1, b2)        => write!(f, "Option {a} is useless without options {b1} or {b2}"),
-            Self::TreeAllAll                 => write!(f, "Option --tree is useless given --all --all"),
             Self::FailedParse(s, n, e)       => write!(f, "Value {s:?} not valid for {n}: {e}"),
             Self::FailedGlobPattern(e)       => write!(f, "Failed to parse glob pattern: {e}"),
         };
