@@ -435,6 +435,7 @@ dependencies = [
  "natord-plus-plus",
  "nu-ansi-term",
  "palette",
+ "palette_derive",
  "path-clean",
  "percent-encoding",
  "phf",
