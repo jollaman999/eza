@@ -16,6 +16,7 @@ pub mod grid;
 pub mod grid_details;
 pub mod icons;
 pub mod lines;
+pub mod prefix;
 pub mod render;
 pub mod table;
 pub mod time;
@@ -30,6 +31,7 @@ pub struct View {
     pub mode: Mode,
     pub width: TerminalWidth,
     pub file_style: file_name::Options,
+    pub prefix: prefix::Options,
     pub deref_links: bool,
     pub follow_links: bool,
     pub total_size: bool,

@@ -441,6 +441,7 @@ impl Exa<'_> {
         let View {
             ref mode,
             ref file_style,
+            prefix,
             ..
         } = self.options.view;
 
@@ -451,6 +452,7 @@ impl Exa<'_> {
                     files,
                     theme,
                     file_style,
+                    prefix,
                     opts,
                     console_width,
                     filter,
@@ -464,6 +466,7 @@ impl Exa<'_> {
                     files,
                     theme,
                     file_style,
+                    prefix,
                     opts,
                     console_width: 80,
                     filter,
@@ -477,6 +480,7 @@ impl Exa<'_> {
                     files,
                     theme,
                     file_style,
+                    prefix,
                     filter,
                 };
                 r.render(&mut self.writer)

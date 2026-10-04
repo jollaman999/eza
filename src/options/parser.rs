@@ -114,7 +114,7 @@ pub fn get_command() -> clap::Command {
         .arg(arg!(-d --"treat-dirs-as-files" "treat directories as files; don't list their contents")
             .visible_alias("directory")
             .alias("list-dirs") // TODO: compat alias to remove (above flag published in v0.23.4 / 2025-10-03)
-            .conflicts_with_all(["recurse", "tree"]))
+            .conflicts_with("tree"))
         .arg(arg!(--"only-dirs" "list only directories"))
         .arg(arg!(--"only-files" "list only files"))
         .arg(arg!(--"show-symlinks" "explicitly show symbolic links (with --only-dirs and --only-files)"))

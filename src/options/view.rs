@@ -15,6 +15,7 @@ use crate::output::TerminalWidth::Set;
 use crate::output::color_scale::{ColorScaleMode, ColorScaleOptions};
 use crate::output::file_name::Options as FileStyle;
 use crate::output::grid_details::{self, RowThreshold};
+use crate::output::prefix::{self, BlockFormat};
 use crate::output::table::{
     Columns, FlagsFormat, GroupFormat, Options as TableOptions, SizeFormat, TimeTypes, UserFormat,
 };
@@ -87,16 +88,18 @@ impl View {
         strict: bool,
     ) -> Result<Self, OptionsError> {
         let width = TerminalWidth::deduce(matches, vars)?;
-        let is_tty = width.actual_terminal_width().is_some();
+        let is_tty = TerminalWidth::Automatic.actual_terminal_width().is_some();
         let mode = Mode::deduce(matches, vars, is_tty, strict)?;
         let deref_links = matches.get_flag("dereference");
         let follow_links = matches.get_flag("follow-symlinks");
         let total_size = matches.get_flag("total-size");
         let file_style = FileStyle::deduce(matches, vars, is_tty)?;
+        let prefix = prefix::Options::deduce(matches);
         Ok(Self {
             mode,
             width,
             file_style,
+            prefix,
             deref_links,
             follow_links,
             total_size,
@@ -203,6 +206,26 @@ impl Mode {
         }
 
         Ok(())
+    }
+}
+
+impl prefix::Options {
+    /// Like `ls`, `-s` and `-Z` print the allocated size and the security
+    /// context before each name outside the long view, which shows them as
+    /// columns instead. The size is in 1024-byte blocks, or with a binary
+    /// prefix when `-h` or `--binary` is given after `--bytes`.
+    fn deduce(matches: &ArgMatches) -> Self {
+        let blocks =
+            matches
+                .get_flag("size")
+                .then(|| match last_given(matches, SIZE_FORMAT_ARGS) {
+                    Some("human-readable" | "binary") => BlockFormat::HumanReadable,
+                    _ => BlockFormat::Kibibytes,
+                });
+        prefix::Options {
+            blocks,
+            context: xattr::ENABLED && matches.get_flag("security-context"),
+        }
     }
 }
 
@@ -1531,6 +1554,78 @@ mod tests {
                 NumberSource::Env(vars::COLUMNS),
                 e.unwrap_err()
             ))
+        );
+    }
+
+    #[test]
+    fn deduce_view_width_does_not_imply_tty() {
+        let view =
+            |args: Vec<&str>, vars: &MockVars| View::deduce(&mock_cli(args), vars, false).unwrap();
+        let default = view(vec![""], &MockVars::default());
+
+        let mut columns = MockVars::default();
+        columns.set(vars::COLUMNS, &OsString::from("60"));
+        for (args, vars) in [
+            (vec!["-w", "80"], &MockVars::default()),
+            (vec!["--width=0"], &MockVars::default()),
+            (vec![""], &columns),
+        ] {
+            let view = view(args.clone(), vars);
+            assert_eq!(view.mode, default.mode, "{args:?}");
+            assert_eq!(view.file_style, default.file_style, "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_prefix_none() {
+        for args in [vec![""], vec!["-l"], vec!["-h"], vec!["--blocksize"]] {
+            assert_eq!(
+                prefix::Options::deduce(&mock_cli(args.clone())),
+                prefix::Options::default(),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_prefix_blocks() {
+        for (args, format) in [
+            (vec!["-s"], BlockFormat::Kibibytes),
+            (vec!["-1s"], BlockFormat::Kibibytes),
+            (vec!["-sh"], BlockFormat::HumanReadable),
+            (vec!["-s", "--binary"], BlockFormat::HumanReadable),
+            (vec!["-sh", "--bytes"], BlockFormat::Kibibytes),
+            (vec!["--bytes", "-sh"], BlockFormat::HumanReadable),
+        ] {
+            assert_eq!(
+                prefix::Options::deduce(&mock_cli(args.clone())),
+                prefix::Options {
+                    blocks: Some(format),
+                    context: false,
+                },
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_prefix_context() {
+        for args in [vec!["-Z"], vec!["--context"], vec!["-1Z"]] {
+            assert_eq!(
+                prefix::Options::deduce(&mock_cli(args.clone())),
+                prefix::Options {
+                    blocks: None,
+                    context: xattr::ENABLED,
+                },
+                "{args:?}"
+            );
+        }
+        assert_eq!(
+            prefix::Options::deduce(&mock_cli(vec!["-sZ"])),
+            prefix::Options {
+                blocks: Some(BlockFormat::Kibibytes),
+                context: xattr::ENABLED,
+            }
         );
     }
 
