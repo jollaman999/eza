@@ -1,20 +1,24 @@
 export extern "eza" [
-    --version(-v)              # Show version of eza
+    --version                  # Show version of eza
     --help                     # Show list of command-line options
+    --stdin                    # Read file names from stdin
     --oneline(-1)              # Display one entry per line
     --long(-l)                 # Display extended file metadata as a table
-    --grid(-G)                 # Display entries in a grid
-    --across(-x)               # Sort the grid across, rather than downwards
+    --long-no-owner(-g)        # Like -l, but list the group instead of the owner
+    --long-no-group(-o)        # Like -l, but do not list the group
+    --grid                     # Display entries in a grid
+    --format-columns(-C)       # Display entries as a grid, listed down columns
+    --across(-x)               # Display entries as a grid, listed across rows
     --recurse(-R)              # Recurse into directories
-    --tree(-T)                 # Recurse into directories as a tree
-    --dereference(-X)          # Dereference symbolic links when displaying file information
-    --classify(-F)             # Display type indicator by file names
+    --recursive                # Recurse into directories
+    --tree                     # Recurse into directories as a tree
+    --dereference(-L)          # Dereference symbolic links when displaying file information
+    -F                         # Display type indicator by file names (same as --classify=always)
+    --classify                 # Display type indicator by file names
     --color                    # When to use terminal colours
     --colour                   # When to use terminal colours
     --color-scale              # Highlight levels of file sizes distinctly
-    --colour-scale             # Highlight levels of file sizes distinctly
     --color-scale-mode         # Use gradient or fixed colors in --color-scale
-    --colour-scale-mode        # Use gradient or fixed colors in --colour-scale
     --icons                    # When to display icons
     --no-quotes                # Don't quote file names with spaces
     --short-nix                # Abbreviate Nix store hashes in file names and paths
@@ -24,40 +28,57 @@ export extern "eza" [
     --group-directories-first  # Sort directories before other files
     --group-directories-last   # Sort directories after other files
     --git-ignore               # Ignore files mentioned in '.gitignore'
-    --all(-a)                  # Show hidden and 'dot' files. Use this twice to also show the '.' and '..' directories
-    --almost-all(-A)           # Equivalent to --all; included for compatibility with `ls -A`
+    --all(-a)                  # Show hidden and 'dot' files, and the '.' and '..' directories
+    --almost-all(-A)           # Show hidden and 'dot' files, but not '.' and '..'
+    --unsorted-all(-f)         # Like -a, and do not sort
     --treat-dirs-as-files(-d)  # List directories like regular files
-    --level(-L): string        # Limit the depth of recursion
-    --width(-w)                # Limits column output of grid, 0 implies auto-width
+    --directory                # List directories like regular files
+    --level: string            # Limit the depth of recursion
+    --width(-w): int           # Set screen width in columns, 0 means no limit
     --reverse(-r)              # Reverse the sort order
-    --sort(-s)                 # Which field to sort by
-    --only-dirs(-D)            # List only directories
-    --only-files(-f)           # List only files
+    --sort: string             # Which field to sort by
+    --sort-time(-t)            # Sort by time, newest first
+    --sort-size(-S)            # Sort by file size, largest first
+    --unsorted(-U)             # Do not sort; list entries in directory order
+    --sort-extension(-X)       # Sort alphabetically by entry extension
+    --sort-version(-v)         # Natural sort of (version) numbers within names
+    --ctime(-c)                # Use the changed time: show it with -l, sort by it with -t or without -l
+    --atime(-u)                # Use the accessed time: show it with -l, sort by it with -t or without -l
+    --only-dirs                # List only directories
+    --only-files               # List only files
     --show-symlinks            # Explicitly show symbolic links (for use with --only-dirs | --only-files)
     --no-symlinks              # Do not show symbolic links
-    --binary(-b)               # List file sizes with binary prefixes
-    --bytes(-B)                # List file sizes in bytes, without any prefixes
-    --group(-g)                # List each file's group
-    --header(-h)               # Add a header row to each column
-    --links(-H)                # List each file's number of hard links
+    --ignore-glob(-I): string  # Ignore files that match these glob patterns
+    --ignore: string           # Ignore files that match these glob patterns
+    --ignore-backups(-B)       # Do not list entries ending with ~
+    --human-readable(-h)       # List file sizes with binary prefixes (same as --binary)
+    --binary                   # List file sizes with binary prefixes
+    --bytes                    # List file sizes in bytes, without any prefixes
+    --group                    # List each file's group
+    --no-group(-G)             # Do not list the group (overrides -g, --group)
+    --header                   # Add a header row to each column
+    --links                    # List each file's number of hard links
     --inode(-i)                # List each file's inode number
     --loc: string              # Add lines-of-code and language columns (lines, percent, both)
     --code: string             # Summarise lines of code by language (lines, percent, both)
-    --blocksize(-S)            # List each file's size of allocated file system blocks
-    --time(-t) -d              # Which timestamp field to list
-    --modified(-m)             # Use the modified timestamp field
-    --numeric(-n)              # List numeric user and group IDs.
+    --size(-s)                 # List each file's size of allocated file system blocks (same as --blocksize)
+    --blocksize                # List each file's size of allocated file system blocks
+    --time: string             # Which timestamp field to show and sort by
+    --modified                 # Use the modified timestamp field
+    --numeric-uid-gid(-n)      # Like -l, but list numeric user and group IDs
+    --numeric                  # List numeric user and group IDs.
     --changed                  # Use the changed timestamp field
-    --accessed(-u)             # Use the accessed timestamp field
-    --created(-U)              # Use the created timestamp field
+    --accessed                 # Use the accessed timestamp field
+    --created                  # Use the created timestamp field
     --time-style               # How to format timestamps
     --total-size               # Show recursive directory size (unix only)
     --no-permissions           # Suppress the permissions field
-    --octal-permissions(-o)    # List each file's permission in octal format
+    --octal-permissions        # List each file's permission in octal format
     --no-filesize              # Suppress the filesize field
     --no-user                  # Suppress the user field
     --no-time                  # Suppress the time field
     --mounts(-M)               # Show mount details
+    --flags(-O)                # List file flags (Mac, BSD, and Windows only)
     --git                      # List each file's Git status, if tracked
     --no-git                   # Suppress Git status
     --git-repos                # List each git-repos status and branch name
@@ -65,5 +86,4 @@ export extern "eza" [
     --extended(-@)             # List each file's extended attributes and sizes
     --context(-Z)              # List each file's security context
     --smart-group              # Only show group if it has a different name from owner
-    --stdin                    # When piping to eza. Read file paths from stdin
 ]

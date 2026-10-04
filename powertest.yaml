@@ -18,8 +18,20 @@ commands:
   ? - -l
     - --long
   :
+  ? - -g
+    - --long-no-owner
+  :
+  ? - -o
+    - --long-no-group
+  :
+  ? - -n
+    - --numeric-uid-gid
+  :
   ? - null
     - --grid
+  :
+  ? - -C
+    - --format-columns
   :
   ? - -x
     - --across
@@ -36,7 +48,7 @@ commands:
   ? - -F
     - --classify
   :
-  ? - -F
+  ? - null # -F takes no value
     - --classify
   : values:
       - auto
@@ -102,6 +114,9 @@ commands:
   ? - null
     - --treat-dirs-as-files
   :
+  ? - null
+    - --directory
+  :
   ? - null # Hidden alias
     - --level
   : prefix: --tree
@@ -117,8 +132,7 @@ commands:
   :
   ? - null
     - --sort
-  : short: -s
-    long: time-style
+  : long: time-style
     prefix: -l
     values: # non-deterministic results with our setup (tests/test_dir) are commented out 
       # - accessed
@@ -142,6 +156,14 @@ commands:
       # - size
       # - time
       - type
+      - version
+  ? - -X
+    - --sort-extension
+  : prefix: -l
+  ? - -v
+    - --sort-version
+  : prefix: -l
+  # -t -S -U -f -c -u sort by time, size or directory order, which is non-deterministic with our setup
   ? - null
     - --group-directories-first
   :
@@ -163,9 +185,20 @@ commands:
     values:
       - "*.toml"
   ? - null
+    - --ignore
+  : prefix: -l
+    values:
+      - "*.toml"
+  ? - -B
+    - --ignore-backups
+  :
+  ? - null
     - --git-ignore
   :
-  ? - null # Long View Options
+  ? - -h # Long View Options
+    - --human-readable
+  : prefix: -l
+  ? - null
     - --binary
   :
   ? - null
@@ -174,6 +207,9 @@ commands:
   ? - null
     - --group
   :
+  ? - -G
+    - --no-group
+  : prefix: -l
   ? - null
     - --header
   :
@@ -198,6 +234,9 @@ commands:
   ? - null
     - --numeric
   :
+  ? - -s
+    - --size
+  : prefix: -l
   ? - null
     - --blocksize
   :

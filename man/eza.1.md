@@ -21,6 +21,8 @@ It uses colours for information by default, helping you distinguish between many
 
 It also has extra features not present in the original `ls`, such as viewing the Git status for a directory, or recursing into directories with a tree view.
 
+The one-letter options mean the same as those of GNU `ls`. Options that only eza has, and whose letter would clash with an `ls` option, have a long name only. `ls` options that eza does not support give an error instead of being silently ignored; see **UNSUPPORTED LS OPTIONS**.
+
 
 EXAMPLES
 ========
@@ -28,8 +30,11 @@ EXAMPLES
 `eza`
 : Lists the contents of the current directory in a grid.
 
-`eza --oneline --reverse --sort=size`
+`eza --oneline --sort=size`
 : Displays a list of files with the largest at the top.
+
+`eza -lt`
+: Displays a table of files with the most recently modified at the top.
 
 `eza --long --header --inode --git`
 : Displays a table of files with a header, showing each file’s metadata, inode, and Git status.
@@ -41,17 +46,56 @@ EXAMPLES
 META OPTIONS
 ===============
 
-`--help`
+`-?`, `--help`
 : Show list of command-line options.
 
-`-v`, `--version`
+`--version`
 : Show version of eza.
+
+`--stdin`
+: Read the file names to list from standard input, one per line, or separated by the character in the `EZA_STDIN_SEPARATOR` environment variable.
+Like `ls`, eza does not read standard input unless this option is given, even when standard input is not a terminal.
 
 DISPLAY OPTIONS
 ===============
 
 `-1`, `--oneline`
 : Display one entry per line.
+This does not turn off a long view option given with it.
+
+`-l`, `--long`
+: Display extended file metadata as a table.
+
+`-g`, `--long-no-owner`
+: Like `-l`, but do not list each file’s user, and list each file’s group.
+
+`-o`, `--long-no-group`
+: Like `-l`, but do not list each file’s group.
+
+`-n`, `--numeric-uid-gid`
+: Like `-l`, but list numeric user and group IDs.
+
+`-C`, `--format-columns`
+: Display entries as a grid, listed down columns (default).
+
+`-x`, `--across`
+: Display entries as a grid, listed across rows rather than down columns.
+
+`--grid`
+: Display entries as a grid (default).
+When given with a long view option, display the tables side by side in a grid.
+
+Like `ls`, the last of `-l`, `-g`, `-o`, `-n`, `-C`, and `-x` picks between the table and the grid, so ‘`eza -lC`’ shows a grid and ‘`eza -Cl`’ shows a table.
+
+`-R`, `--recurse`, `--recursive`
+: Recurse into directories.
+Given with `-d`, `-d` wins and the directories are listed as files.
+
+`--tree`
+: Recurse into directories as a tree.
+
+`--level=DEPTH`
+: Limit the depth of recursion.
 
 `--absolute=WHEN`
 : Display entries with their absolute path.
@@ -63,25 +107,17 @@ When used without a value, defaults to '`on`'.
 '`follow`': Show absolute paths and resolve symbolic links to their targets.
 '`off`': Show relative paths (default behavior).
 
-`-F`, `--classify=WHEN`
+`-F`
+: Display file kind indicators next to file names, like `ls -F`.
+The same as `--classify=always`. This option takes no value.
+
+`--classify[=WHEN]`
 : Display file kind indicators next to file names.
 
 Valid settings are ‘`always`’, ‘`automatic`’ (or ‘`auto`’ for short), and ‘`never`’.
-When used without a value, defaults to ‘`automatic`’.
+When used without a value, defaults to ‘`always`’, like `ls --classify`. A value must be joined with ‘`=`’.
 
 `automatic` or `auto` will display file kind indicators only when the standard output is connected to a real terminal. If `eza` is ran while in a `tty`, or the output of `eza` is either redirected to a file or piped into another program, file kind indicators will not be used. Setting this option to ‘`always`’ causes `eza` to always display file kind indicators, while ‘`never`’ disables the use of file kind indicators.
-
-`-G`, `--grid`
-: Display entries as a grid (default).
-
-`-l`, `--long`
-: Display extended file metadata as a table.
-
-`-R`, `--recurse`
-: Recurse into directories.
-
-`-T`, `--tree`
-: Recurse into directories as a tree.
 
 `--code[=MODE]`
 : Print a lines-of-code summary by language instead of listing files, in the spirit of tools like `tokei` and `cloc`.
@@ -91,11 +127,8 @@ When used without a value, defaults to ‘`automatic`’.
 `--follow-symlinks`
 : Drill down into symbolic links that point to directories.
 
-`-X`, `--dereference`
-: Dereference symbolic links when displaying information.
-
-`-x`, `--across`
-: Sort the grid across, rather than downwards.
+`-L`, `--dereference`
+: Dereference symbolic links when displaying information: show the information of the file a link points to, rather than of the link itself.
 
 `--color=WHEN`, `--colour=WHEN`
 : When to use terminal colours (using ANSI escape code to colorize the output).
@@ -107,11 +140,11 @@ The default behavior (‘`automatic`’ or ‘`auto`’) is to colorize the outp
 
 Manually setting this option overrides `NO_COLOR` environment.
 
-`--color-scale`, `--colour-scale`
+`--color-scale`
 : highlight levels of `field` distinctly.
 Use comma(,) separated list of all, age, size
 
-`--color-scale-mode=MODE`, `--colour-scale-mode=MODE`
+`--color-scale-mode=MODE`
 : Use gradient or fixed colors in `--color-scale`.
 
 Valid options are `fixed` or `gradient`.
@@ -142,44 +175,79 @@ When used without a value, defaults to ‘`automatic`’.
 `automatic` or `auto` will display hyperlinks only when the standard output is connected to a real terminal. If `eza` is ran while in a `tty`, or the output of `eza` is either redirected to a file or piped into another program, hyperlinks will not be used. Setting this option to ‘`always`’ causes `eza` to always display hyperlinks, while ‘`never`’ disables the use of hyperlinks.
 
 `-w`, `--width=COLS`
-: Set screen width in columns.
+: Set screen width in columns, overriding the `COLUMNS` environment variable.
+A width of 0 means there is no limit.
+Like `ls -w`, this only sets the width: when the output is not a terminal, it does not turn on the grid by itself. Use `-C` or `-x` for that.
 
 FILTERING AND SORTING OPTIONS
 =============================
 
 `-a`, `--all`
-: Show hidden and “dot” files.
-Use this twice to also show the ‘`.`’ and ‘`..`’ directories.
+: Show hidden and “dot” files, and the ‘`.`’ and ‘`..`’ directories.
+With `--tree`, only the hidden files are shown. Giving it more than once is the same as giving it once.
 
 `-A`, `--almost-all`
-: Equivalent to --all; included for compatibility with `ls -A`.
+: Show hidden and “dot” files, but not the ‘`.`’ and ‘`..`’ directories.
 
-`-d`, `--treat-dirs-as-files`
+`-f`, `--unsorted-all`
+: The same as `-a -U`: show all files, and do not sort.
+
+`-d`, `--treat-dirs-as-files`, `--directory`
 : This flag, inherited from `ls`, changes how `eza` handles directory arguments.
 
 : Instead of recursing into directories and listing their contents (the default behavior), it treats directories as regular files and lists information about the directory entry itself.
 
 : This is useful when you want to see metadata about the directory (e.g., permissions, size, modification time) rather than its contents.
 
-: For simply listing only directories and not files, consider using the `--only-dirs` (`-D`) option as an alternative.
+: For simply listing only directories and not files, consider using the `--only-dirs` option as an alternative.
 
-`-L`, `--level=DEPTH`
-: Limit the depth of recursion.
+: When given with `-R` (as in ‘`eza -dR`’), `-d` wins and the directories are not recursed into, like `ls -dR`.
 
 `-r`, `--reverse`
 : Reverse the sort order.
 
-`-s`, `--sort=SORT_FIELD`
+`--sort=SORT_FIELD`
 : Which field to sort by.
 
-Valid sort fields are ‘`name`’, ‘`Name`’, ‘`extension`’, ‘`Extension`’, ‘`size`’, ‘`modified`’, ‘`changed`’, ‘`accessed`’, ‘`created`’, ‘`inode`’, ‘`type`’, and ‘`none`’.
+Valid sort fields are ‘`name`’, ‘`Name`’, ‘`.name`’, ‘`.Name`’, ‘`extension`’, ‘`Extension`’, ‘`size`’, ‘`time`’, ‘`version`’, ‘`modified`’, ‘`changed`’, ‘`accessed`’, ‘`created`’, ‘`inode`’, ‘`type`’, and ‘`none`’.
 
-The `modified` sort field has the aliases ‘`date`’, ‘`time`’, and ‘`newest`’, and its reverse order has the aliases ‘`age`’ and ‘`oldest`’.
+Like `ls`, ‘`size`’ puts the largest files first, and ‘`time`’ puts the newest files first, using the time field picked by `-c`, `-u`, or `--time` (the modified time by default). ‘`version`’ is the same as ‘`name`’, which already sorts numbers within names in natural order. ‘`none`’ does not sort. ‘`width`’, which `ls` accepts, is not supported and gives an error.
+
+The `modified` sort field, which puts the oldest files first, has the aliases ‘`date`’ and ‘`newest`’, and its reverse order has the aliases ‘`age`’ and ‘`oldest`’.
 
 Sort fields starting with a capital letter will sort uppercase before lowercase: ‘A’ then ‘B’ then ‘a’ then ‘b’. Fields starting with a lowercase letter will mix them: ‘A’ then ‘a’ then ‘B’ then ‘b’.
 
-`-I`, `--ignore-glob=GLOBS`
+When sorting by size or by a time field, files with the same size or time are sorted by name.
+
+`-t`, `--sort-time`
+: Sort by time, newest first. The time field is the modified time, or the one picked by `-c`, `-u`, or `--time`.
+
+`-S`, `--sort-size`
+: Sort by file size, largest first.
+
+`-U`, `--unsorted`
+: Do not sort; list entries in directory order.
+
+`-X`, `--sort-extension`
+: Sort alphabetically by file extension.
+
+`-v`, `--sort-version`
+: Sort by name, with numbers within names in natural (version) order.
+
+`-c`, `--ctime`
+: Use the changed time. With a long view option, show it instead of the modified time. With `-t`, or without a long view option, sort by it, newest first.
+
+`-u`, `--atime`
+: Use the accessed time. With a long view option, show it instead of the modified time. With `-t`, or without a long view option, sort by it, newest first.
+
+Like `ls`, the last of `--sort`, `-t`, `-S`, `-U`, `-X`, `-v`, and `-f` picks the sort order, and the last of `-c`, `-u`, and `--time` picks the time field.
+
+`-I`, `--ignore-glob=GLOBS`, `--ignore=GLOBS`
 : Glob patterns, pipe-separated, of files to ignore.
+Like `ls -I`, it can be given more than once, and the patterns add up.
+
+`-B`, `--ignore-backups`
+: Do not list files whose names end with ‘`~`’.
 
 `--git-ignore` [if eza was built with git support]
 : Do not list files that are ignored by Git.
@@ -190,10 +258,10 @@ Sort fields starting with a capital letter will sort uppercase before lowercase:
 `--group-directories-last`
 : List directories after other files.
 
-`-D`, `--only-dirs`
+`--only-dirs`
 : List only directories, not files.
 
-`-f`, `--only-files`
+`--only-files`
 : List only files, not directories.
 
 `--show-symlinks`
@@ -205,27 +273,35 @@ Sort fields starting with a capital letter will sort uppercase before lowercase:
 LONG VIEW OPTIONS
 =================
 
-These options are available when running with `--long` (`-l`):
+These options are available when running with `--long` (`-l`).
+`-g`, `-o`, and `-n` also turn on the long view, like `-l` does.
+`-s` and `-Z` also work without a long view: like `ls`, they put the block size or the security context before each file name.
 
-`-b`, `--binary`
+`-h`, `--human-readable`
+: List file sizes with binary prefixes, where 1K is 1024 bytes. The same as `--binary`.
+
+`--binary`
 : List file sizes with binary prefixes.
 
-`-B`, `--bytes`
+`--bytes`
 : List file sizes in bytes, without any prefixes.
 
 `--changed`
 : Use the changed timestamp field.
 
-`-g`, `--group`
+`--group`
 : List each file’s group.
+
+`-G`, `--no-group`
+: Do not list each file’s group. This overrides `-g` and `--group`.
 
 `--smart-group`
 : Only show group if it has a different name from owner
 
-`-h`, `--header`
+`--header`
 : Add a header row to each column.
 
-`-H`, `--links`
+`--links`
 : List each file’s number of hard links.
 
 `-i`, `--inode`
@@ -238,25 +314,30 @@ These options are available when running with `--long` (`-l`):
 
 : Valid modes are ‘`lines`’ (the count of code lines), ‘`percent`’ (each file’s share of the code in the whole tree), and ‘`both`’ (the default). In `percent` and `both` modes the denominator is the total code across the recursed tree, or the git repository if one is present.
 
-`-m`, `--modified`
+`--modified`
 : Use the modified timestamp field.
 
 `-M`, `--mounts`
 : Show mount details (Linux and Mac only)
 
-`-n`, `--numeric`
+`--numeric`
 : List numeric user and group IDs.
+Unlike `-n`, it does not turn on the long view.
 
 `-O`, `--flags`
 : List file flags on Mac and BSD systems and file attributes on Windows systems.  By default, Windows attributes are displayed in a long form.  To display in attributes as single character set the environment variable `EZA_WINDOWS_ATTRIBUTES=short`.  On BSD systems see chflags(1) for a list of file flags and their meanings.
 
-`-S`, `--blocksize`
+`-s`, `--size`
+: List each file’s size of allocated file system blocks. The same as `--blocksize`.
+Without a long view, the size is put before each file name, like `ls -s`.
+
+`--blocksize`
 : List each file’s size of allocated file system blocks.
 
-`-t`, `--time=WORD`
-: Which timestamp field to list.
+`--time=WORD`
+: Which timestamp field to list. With `-t`, or without a long view option, also sort by it, newest first.
 
-: Valid timestamp fields are ‘`modified`’, ‘`changed`’, ‘`accessed`’, and ‘`created`’.
+: Valid timestamp fields are ‘`modified`’, ‘`changed`’, ‘`accessed`’, and ‘`created`’, and the `ls` words ‘`mtime`’ and ‘`modification`’, ‘`ctime`’ and ‘`status`’, ‘`atime`’, ‘`access`’ and ‘`use`’, and ‘`birth`’ and ‘`creation`’.
 
 `--time-style=STYLE`
 : How to format timestamps.
@@ -270,16 +351,16 @@ Alternatively, `<FORMAT>` can be a two line string, the first line will be used 
 `--total-size`
 : Show recursive directory size (unix only).
 
-`-u`, `--accessed`
+`--accessed`
 : Use the accessed timestamp field.
 
-`-U`, `--created`
+`--created`
 : Use the created timestamp field.
 
 `--no-permissions`
 : Suppress the permissions field.
 
-`-o`, `--octal-permissions`
+`--octal-permissions`
 : List each file's permissions in octal format.
 
 `--no-filesize`
@@ -291,14 +372,12 @@ Alternatively, `<FORMAT>` can be a two line string, the first line will be used 
 `--no-time`
 : Suppress the time field.
 
-`--stdin`
-: When you wish to pipe directories to eza/read from stdin. Separate one per line or define custom separation char in `EZA_STDIN_SEPARATOR` env variable.
-
 `-@`, `--extended`
 : List each file’s extended attributes and sizes.
 
 `-Z`, `--context`
 : List each file's security context.
+Without a long view, the context is put before each file name, like `ls -Z`.
 
 `--git`  [if eza was built with git support]
 : List each file’s Git status, if tracked.
@@ -315,6 +394,42 @@ All Git repository directories will be shown as (themed) `-` without status indi
 
 `--no-git`
 : Don't show Git status (always overrides `--git`, `--git-repos`, `--git-repos-no-status`)
+
+
+UNSUPPORTED LS OPTIONS
+======================
+
+These `ls` options are recognised, but eza does not support them. Giving one of them makes eza exit with an error saying the option is not supported, rather than silently ignoring it.
+
+`-T`, `--tabsize=COLS`
+: Assume tab stops at each COLS.
+
+`-D`, `--dired`
+: Generate output designed for Emacs’ dired mode.
+
+`-H`, `--dereference-command-line`
+: Follow symbolic links given on the command line.
+
+`-m`, `--format-commas`
+: Fill width with a comma separated list of entries.
+
+`-b`, `--escape`
+: Print C-style escapes for nongraphic characters.
+
+`-Q`, `--quote-name`
+: Enclose entry names in double quotes.
+
+`-N`, `--literal`
+: Print entry names without quoting.
+
+`-q`, `--hide-control-chars`
+: Print ‘`?`’ instead of nongraphic characters.
+
+`-p`, `--indicator-slash`
+: Append ‘`/`’ to directories.
+
+`-k`, `--kibibytes`
+: Use 1024-byte blocks for file system usage.
 
 
 ENVIRONMENT VARIABLES
@@ -382,7 +497,7 @@ Any explicit use of the `--icons=WHEN` flag overrides this behavior.
 
 ## `EZA_STDIN_SEPARATOR`
 
-Specifies the separator to use when file names are piped from stdin. Defaults to newline.
+Specifies the separator to use when file names are read from stdin with `--stdin`. Defaults to newline.
 
 ## `EZA_CONFIG_DIR`
 

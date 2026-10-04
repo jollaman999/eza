@@ -4,11 +4,11 @@ _eza() {
     prev=${COMP_WORDS[COMP_CWORD-1]}
 
     case "$prev" in
-        --help|-v|--version|--smart-group)
+        --help|-\?|--version|--smart-group)
             return
             ;;
 
-        --colour)
+        --color|--colour)
             mapfile -t COMPREPLY < <(compgen -W 'always automatic auto never' -- "$cur")
             return
             ;;
@@ -23,18 +23,18 @@ _eza() {
             return
             ;;
 
-        -L|--level)
+        --level)
             mapfile -t COMPREPLY < <(compgen -W '{0..9}' -- "$cur")
             return
             ;;
 
-        -s|--sort)
-            mapfile -t COMPREPLY < <(compgen -W 'name filename Name Filename size filesize extension Extension date time modified changed accessed created type inode oldest newest age none --' -- "$cur")
+        --sort)
+            mapfile -t COMPREPLY < <(compgen -W 'name filename Name Filename .name .Name size ext Ext extension Extension version date time modified changed accessed created type inode oldest newest age none --' -- "$cur")
             return
             ;;
 
-        -t|--time)
-            mapfile -t COMPREPLY < <(compgen -W 'modified changed accessed created --' -- "$cur")
+        --time)
+            mapfile -t COMPREPLY < <(compgen -W 'modified mtime modification changed ctime status accessed atime access use created birth creation --' -- "$cur")
             return
             ;;
 
@@ -64,7 +64,7 @@ _eza() {
         --*)
             # colo[u]r isn’t parsed correctly so we filter these options out and add them by hand
             parse_help=$(eza --help | grep -oE ' (--[[:alnum:]@-]+)' | tr -d ' ' | grep -v '\--colo')
-            completions=$(echo '--color --colour --color-scale --colour-scale --color-scale-mode --colour-scale-mode' "$parse_help")
+            completions=$(echo '--color --colour --color-scale --color-scale-mode' "$parse_help")
             mapfile -t COMPREPLY < <(compgen -W "$completions" -- "$cur")
             ;;
 
