@@ -17,7 +17,7 @@ use crate::fs::File;
 /// Flags used to manage the **file filter** process
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum FileFilterFlags {
-    /// Whether to reverse the sorting order. This would sort the largest
+    /// Whether to reverse the sorting order. This would sort the smallest
     /// files first, or files starting with Z, or the most-recently-changed
     /// ones, depending on the sort field.
     Reverse,
@@ -174,7 +174,7 @@ pub enum SortField {
     /// The file’s extension, with extensionless files being listed first.
     Extension(SortCase),
 
-    /// The file’s size, in bytes.
+    /// The file’s size, in bytes, largest first like `ls -S`.
     Size,
 
     /// The file’s inode, which usually corresponds to the order in which
@@ -231,6 +231,15 @@ pub enum SortField {
     /// The file's name, however if the name of the file begins with `.`
     /// ignore the leading `.` and then sort as Name
     NameMixHidden(SortCase),
+
+    /// The time the file was accessed, sorted backwards, newest first.
+    AccessedAge,
+
+    /// The time the file was changed, sorted backwards, newest first.
+    ChangedAge,
+
+    /// The time the file was created, sorted backwards, newest first.
+    CreatedAge,
 }
 
 /// Whether a field should be sorted case-sensitively or case-insensitively.
@@ -271,18 +280,21 @@ impl SortField {
             Self::Name(ABCabc)  => natord::compare(&a.name, &b.name),
             Self::Name(AaBbCc)  => natord::compare_ignore_case(&a.name, &b.name),
 
-            Self::Size          => a.length().cmp(&b.length()),
+            Self::Size          => Self::then_name(b.length().cmp(&a.length()), a, b),
 
             #[cfg(unix)]
             Self::FileInode     => {
                 a.metadata().map_or(0, MetadataExt::ino)
                     .cmp(&b.metadata().map_or(0, MetadataExt::ino))
             }
-            Self::ModifiedDate  => a.modified_time().cmp(&b.modified_time()),
-            Self::AccessedDate  => a.accessed_time().cmp(&b.accessed_time()),
-            Self::ChangedDate   => a.changed_time().cmp(&b.changed_time()),
-            Self::CreatedDate   => a.created_time().cmp(&b.created_time()),
-            Self::ModifiedAge   => b.modified_time().cmp(&a.modified_time()),  // flip b and a
+            Self::ModifiedDate  => Self::then_name(a.modified_time().cmp(&b.modified_time()), a, b),
+            Self::AccessedDate  => Self::then_name(a.accessed_time().cmp(&b.accessed_time()), a, b),
+            Self::ChangedDate   => Self::then_name(a.changed_time().cmp(&b.changed_time()), a, b),
+            Self::CreatedDate   => Self::then_name(a.created_time().cmp(&b.created_time()), a, b),
+            Self::ModifiedAge   => Self::then_name(b.modified_time().cmp(&a.modified_time()), a, b),  // flip b and a
+            Self::AccessedAge   => Self::then_name(b.accessed_time().cmp(&a.accessed_time()), a, b),
+            Self::ChangedAge    => Self::then_name(b.changed_time().cmp(&a.changed_time()), a, b),
+            Self::CreatedAge    => Self::then_name(b.created_time().cmp(&a.created_time()), a, b),
             Self::FileType => match a.type_char().cmp(&b.type_char()) { // todo: this recomputes
                 Ordering::Equal  => natord::compare(&a.name, &b.name),
                 order            => order,
@@ -308,6 +320,15 @@ impl SortField {
                 Self::strip_dot(&b.name)
             ),
         };
+    }
+
+    /// Breaks a tie between two files by comparing their names, like `ls`
+    /// does when two files have the same size or time.
+    fn then_name(order: Ordering, a: &File<'_>, b: &File<'_>) -> Ordering {
+        match order {
+            Ordering::Equal => natord::compare_ignore_case(&a.name, &b.name),
+            order => order,
+        }
     }
 
     fn strip_dot(n: &str) -> &str {
@@ -422,5 +443,68 @@ mod test_ignores {
         assert!(fails.is_empty());
         assert!(pats.is_ignored("nothing"));
         assert!(pats.is_ignored("test.mp3"));
+    }
+}
+
+#[cfg(test)]
+mod test_sort_ties {
+    use super::*;
+    use std::path::PathBuf;
+
+    /// Two hard links to the same file have the same size and times, so
+    /// only their names can tell them apart.
+    fn with_twins<F: Fn(&File<'_>, &File<'_>)>(name: &str, test: F) {
+        let dir =
+            std::env::temp_dir().join(format!("eza-sort-ties-{}-{}", std::process::id(), name));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("apple");
+        let b = dir.join("banana");
+        std::fs::write(&a, b"twins").unwrap();
+        std::fs::hard_link(&a, &b).unwrap();
+
+        let fa = File::from_args(a, None, None, false, false, None);
+        let fb = File::from_args(b, None, None, false, false, None);
+        test(&fa, &fb);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    macro_rules! test {
+        ($name:ident: $field:expr) => {
+            #[test]
+            fn $name() {
+                with_twins(stringify!($name), |a, b| {
+                    assert_eq!($field.compare_files(a, b), Ordering::Less);
+                    assert_eq!($field.compare_files(b, a), Ordering::Greater);
+                });
+            }
+        };
+    }
+
+    test!(size:          SortField::Size);
+    test!(modified:      SortField::ModifiedDate);
+    test!(modified_age:  SortField::ModifiedAge);
+    test!(accessed:      SortField::AccessedDate);
+    test!(accessed_age:  SortField::AccessedAge);
+    test!(changed:       SortField::ChangedDate);
+    test!(changed_age:   SortField::ChangedAge);
+    test!(created:       SortField::CreatedDate);
+    test!(created_age:   SortField::CreatedAge);
+
+    #[test]
+    fn size_largest_first() {
+        let dir = std::env::temp_dir().join(format!("eza-sort-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("small");
+        let large = dir.join("large");
+        std::fs::write(&small, b"a").unwrap();
+        std::fs::write(&large, b"abcdef").unwrap();
+
+        let fs = File::from_args(PathBuf::from(&small), None, None, false, false, None);
+        let fl = File::from_args(PathBuf::from(&large), None, None, false, false, None);
+        assert_eq!(SortField::Size.compare_files(&fl, &fs), Ordering::Less);
+        assert_eq!(SortField::Size.compare_files(&fs, &fl), Ordering::Greater);
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

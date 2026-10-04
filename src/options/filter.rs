@@ -7,6 +7,7 @@
 //! Parsing the options for `FileFilter`.
 
 use clap::ArgMatches;
+use clap::parser::ValueSource;
 
 use crate::fs::DotFilter;
 use crate::fs::filter::{
@@ -14,6 +15,46 @@ use crate::fs::filter::{
 };
 
 use crate::options::OptionsError;
+use crate::options::parser::{SortArg, TimeArgs};
+
+/// The options that pick a sort order. The last one given wins.
+const SORT_ARGS: &[&str] = &[
+    "sort",
+    "sort-time",
+    "sort-size",
+    "unsorted",
+    "sort-extension",
+    "sort-version",
+    "unsorted-all",
+];
+
+/// The options that pick which time field to sort by and, in the long view,
+/// to show. The last one given wins.
+pub(super) const TIME_ARGS: &[&str] = &["time", "ctime", "atime"];
+
+/// Whether the option was given on the command line, rather than taking its
+/// default value.
+fn given(matches: &ArgMatches, id: &str) -> bool {
+    matches.value_source(id) == Some(ValueSource::CommandLine)
+}
+
+/// The option out of `ids` that was given last on the command line.
+pub(super) fn last_given(matches: &ArgMatches, ids: &[&'static str]) -> Option<&'static str> {
+    ids.iter()
+        .copied()
+        .filter(|id| given(matches, id))
+        .max_by_key(|id| matches.indices_of(id).and_then(Iterator::max))
+}
+
+/// In strict mode, giving two different options out of `ids` is an error.
+/// Giving the same one more than once is not.
+fn strict_check_group(matches: &ArgMatches, ids: &[&'static str]) -> Result<(), OptionsError> {
+    let mut given_ids = ids.iter().copied().filter(|id| given(matches, id));
+    match (given_ids.next(), given_ids.next()) {
+        (Some(a), Some(b)) => Err(OptionsError::Conflict(a, b)),
+        _ => Ok(()),
+    }
+}
 
 impl FileFilter {
     /// Determines which of all the file filter options to use.
@@ -39,11 +80,64 @@ impl FileFilter {
             no_symlinks: matches.get_flag("no-symlinks"),
             show_symlinks: matches.get_flag("show-symlinks"),
             flags: filter_flags,
-            sort_field: *matches.get_one("sort").unwrap(),
+            sort_field: SortField::deduce(matches, strict)?,
             dot_filter: DotFilter::deduce(matches, strict)?,
             ignore_patterns: IgnorePatterns::deduce(matches)?,
             git_ignore: GitIgnore::deduce(matches),
         })
+    }
+}
+
+impl SortField {
+    /// Determines which sort field to use like `ls` does: out of `--sort`,
+    /// `-t`, `-S`, `-U`, `-X`, `-v` and `-f`, the last one given wins.
+    ///
+    /// Sorting by time picks the time field from the last of `-c`, `-u` and
+    /// `--time`, newest first. Giving one of those without a sort option
+    /// sorts by that time too, unless the long view shows it instead.
+    ///
+    /// Strict mode rejects two different sort options, or two different
+    /// time options.
+    pub fn deduce(matches: &ArgMatches, strict: bool) -> Result<Self, OptionsError> {
+        if strict {
+            strict_check_group(matches, SORT_ARGS)?;
+            strict_check_group(matches, TIME_ARGS)?;
+        }
+
+        let field = match last_given(matches, SORT_ARGS) {
+            Some("sort-time") => Self::newest_first(matches),
+            Some("sort-size") => Self::Size,
+            Some("unsorted" | "unsorted-all") => Self::Unsorted,
+            Some("sort-extension") => Self::Extension(SortCase::AaBbCc),
+            Some("sort-version") => Self::default(),
+            Some(_) => match matches.get_one::<SortArg>("sort") {
+                Some(SortArg::Field(field)) => *field,
+                Some(SortArg::Time) => Self::newest_first(matches),
+                None => Self::default(),
+            },
+            None if last_given(matches, TIME_ARGS).is_some() && !matches.get_flag("long") => {
+                Self::newest_first(matches)
+            }
+            None => Self::default(),
+        };
+
+        Ok(field)
+    }
+
+    /// The newest-first sort field for the time field picked by the last of
+    /// `-c`, `-u` and `--time`, which is the modified time by default.
+    fn newest_first(matches: &ArgMatches) -> Self {
+        match last_given(matches, TIME_ARGS) {
+            Some("ctime") => Self::ChangedAge,
+            Some("atime") => Self::AccessedAge,
+            Some(_) => match matches.get_one::<TimeArgs>("time") {
+                Some(TimeArgs::Changed) => Self::ChangedAge,
+                Some(TimeArgs::Accessed) => Self::AccessedAge,
+                Some(TimeArgs::Created) => Self::CreatedAge,
+                Some(TimeArgs::Modified) | None => Self::ModifiedAge,
+            },
+            None => Self::ModifiedAge,
+        }
     }
 }
 
@@ -85,18 +179,20 @@ impl Default for SortField {
 }
 
 impl DotFilter {
-    /// Determines the dot filter the way `ls` does: `--all` shows dotfiles
-    /// together with `.` and `..`, and `--almost-all` shows dotfiles only.
-    /// Giving `--all` more than once is the same as giving it once.
+    /// Determines the dot filter the way `ls` does: `--all` and
+    /// `--unsorted-all` show dotfiles together with `.` and `..`, and
+    /// `--almost-all` shows dotfiles only. Giving `--all` more than once is
+    /// the same as giving it once.
     ///
-    /// When both are given, the one that comes last on the command line wins,
-    /// and strict mode rejects the combination.
+    /// When `--almost-all` and either of the others are given, the one that
+    /// comes last on the command line wins, and strict mode rejects the
+    /// combination.
     ///
     /// It also checks for the `--tree` option, because listing the parent
     /// directory in tree mode would loop onto itself, so `--all` only shows
     /// dotfiles there.
     pub fn deduce(matches: &ArgMatches, strict: bool) -> Result<Self, OptionsError> {
-        let has_all = matches.get_count("all") > 0;
+        let has_all = matches.get_count("all") > 0 || matches.get_flag("unsorted-all");
         let has_almost_all = matches.get_flag("almost-all");
 
         let all_wins = match (has_all, has_almost_all) {
@@ -105,11 +201,14 @@ impl DotFilter {
             (false, true) => false,
             (true, true) => {
                 if strict {
-                    return Err(OptionsError::Conflict("all", "almost-all"));
+                    let all = if matches.get_count("all") > 0 {
+                        "all"
+                    } else {
+                        "unsorted-all"
+                    };
+                    return Err(OptionsError::Conflict(all, "almost-all"));
                 }
-                let last_all = matches.indices_of("all").and_then(Iterator::max);
-                let last_almost_all = matches.index_of("almost-all");
-                last_all > last_almost_all
+                last_given(matches, &["all", "unsorted-all", "almost-all"]) != Some("almost-all")
             }
         };
 
@@ -337,122 +436,387 @@ mod tests {
     }
 
     #[test]
+    fn deduce_dot_filter_unsorted_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-f"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--unsorted-all"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-ff"]), true),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_tree_unsorted_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["--tree", "-f"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_unsorted_all_and_almost_all() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-f", "-A"]), false),
+            Ok(DotFilter::Dotfiles)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A", "-f"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a", "-A", "-f"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-f", "-A", "-a"]), false),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+    }
+
+    #[test]
+    fn deduce_dot_filter_unsorted_all_strict() {
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-a", "-f"]), true),
+            Ok(DotFilter::DotfilesAndDots)
+        );
+        assert_eq!(
+            DotFilter::deduce(&mock_cli(vec!["-A", "-f"]), true),
+            Err(OptionsError::Conflict("unsorted-all", "almost-all"))
+        );
+    }
+
+    fn sort_field(args: Vec<&str>) -> Result<SortField, OptionsError> {
+        SortField::deduce(&mock_cli(args), false)
+    }
+
+    #[test]
+    fn deduce_sort_default() {
+        assert_eq!(sort_field(vec![""]), Ok(SortField::default()));
+        assert_eq!(sort_field(vec!["-l"]), Ok(SortField::default()));
+    }
+
+    #[test]
+    fn deduce_sort_flags() {
+        assert_eq!(sort_field(vec!["-t"]), Ok(SortField::ModifiedAge));
+        assert_eq!(sort_field(vec!["--sort-time"]), Ok(SortField::ModifiedAge));
+        assert_eq!(sort_field(vec!["-S"]), Ok(SortField::Size));
+        assert_eq!(sort_field(vec!["--sort-size"]), Ok(SortField::Size));
+        assert_eq!(sort_field(vec!["-U"]), Ok(SortField::Unsorted));
+        assert_eq!(sort_field(vec!["--unsorted"]), Ok(SortField::Unsorted));
+        assert_eq!(
+            sort_field(vec!["-X"]),
+            Ok(SortField::Extension(SortCase::AaBbCc))
+        );
+        assert_eq!(
+            sort_field(vec!["--sort-extension"]),
+            Ok(SortField::Extension(SortCase::AaBbCc))
+        );
+        assert_eq!(sort_field(vec!["-v"]), Ok(SortField::default()));
+        assert_eq!(sort_field(vec!["--sort-version"]), Ok(SortField::default()));
+        assert_eq!(sort_field(vec!["-f"]), Ok(SortField::Unsorted));
+        assert_eq!(sort_field(vec!["--unsorted-all"]), Ok(SortField::Unsorted));
+    }
+
+    #[test]
+    fn deduce_sort_words() {
+        assert_eq!(sort_field(vec!["--sort=size"]), Ok(SortField::Size));
+        assert_eq!(sort_field(vec!["--sort=time"]), Ok(SortField::ModifiedAge));
+        assert_eq!(sort_field(vec!["--sort=none"]), Ok(SortField::Unsorted));
+        assert_eq!(sort_field(vec!["--sort=version"]), Ok(SortField::default()));
+        assert_eq!(
+            sort_field(vec!["--sort=extension"]),
+            Ok(SortField::Extension(SortCase::AaBbCc))
+        );
+        assert_eq!(sort_field(vec!["--sort=date"]), Ok(SortField::ModifiedDate));
+        assert_eq!(sort_field(vec!["--sort=age"]), Ok(SortField::ModifiedAge));
+        assert_eq!(
+            sort_field(vec!["-u", "--sort=time"]),
+            Ok(SortField::AccessedAge)
+        );
+        assert_eq!(
+            sort_field(vec!["-l", "-c", "--sort=time"]),
+            Ok(SortField::ChangedAge)
+        );
+    }
+
+    #[test]
+    fn deduce_sort_time_field() {
+        assert_eq!(sort_field(vec!["-tc"]), Ok(SortField::ChangedAge));
+        assert_eq!(sort_field(vec!["-t", "--ctime"]), Ok(SortField::ChangedAge));
+        assert_eq!(sort_field(vec!["-tu"]), Ok(SortField::AccessedAge));
+        assert_eq!(
+            sort_field(vec!["-t", "--atime"]),
+            Ok(SortField::AccessedAge)
+        );
+        assert_eq!(sort_field(vec!["-ltc"]), Ok(SortField::ChangedAge));
+        assert_eq!(sort_field(vec!["-ltu"]), Ok(SortField::AccessedAge));
+        for (word, field) in [
+            ("atime", SortField::AccessedAge),
+            ("access", SortField::AccessedAge),
+            ("use", SortField::AccessedAge),
+            ("accessed", SortField::AccessedAge),
+            ("ctime", SortField::ChangedAge),
+            ("status", SortField::ChangedAge),
+            ("changed", SortField::ChangedAge),
+            ("birth", SortField::CreatedAge),
+            ("creation", SortField::CreatedAge),
+            ("created", SortField::CreatedAge),
+            ("mtime", SortField::ModifiedAge),
+            ("modification", SortField::ModifiedAge),
+            ("modified", SortField::ModifiedAge),
+        ] {
+            assert_eq!(sort_field(vec!["-t", "--time", word]), Ok(field), "{word}");
+            assert_eq!(
+                sort_field(vec!["-l", "-t", "--time", word]),
+                Ok(field),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_sort_time_field_last_wins() {
+        assert_eq!(
+            sort_field(vec!["-t", "-c", "-u"]),
+            Ok(SortField::AccessedAge)
+        );
+        assert_eq!(
+            sort_field(vec!["-t", "-u", "-c"]),
+            Ok(SortField::ChangedAge)
+        );
+        assert_eq!(
+            sort_field(vec!["-t", "-u", "--time=birth"]),
+            Ok(SortField::CreatedAge)
+        );
+        assert_eq!(
+            sort_field(vec!["-t", "--time=birth", "-u"]),
+            Ok(SortField::AccessedAge)
+        );
+    }
+
+    #[test]
+    fn deduce_sort_time_without_sort_option() {
+        assert_eq!(sort_field(vec!["-c"]), Ok(SortField::ChangedAge));
+        assert_eq!(sort_field(vec!["-u"]), Ok(SortField::AccessedAge));
+        assert_eq!(sort_field(vec!["--time=atime"]), Ok(SortField::AccessedAge));
+        assert_eq!(sort_field(vec!["-1", "-u"]), Ok(SortField::AccessedAge));
+        assert_eq!(sort_field(vec!["-lc"]), Ok(SortField::default()));
+        assert_eq!(sort_field(vec!["-lu"]), Ok(SortField::default()));
+        assert_eq!(
+            sort_field(vec!["-l", "--time=atime"]),
+            Ok(SortField::default())
+        );
+        assert_eq!(sort_field(vec!["-u", "-S"]), Ok(SortField::Size));
+        assert_eq!(
+            sort_field(vec!["-u", "--sort=name"]),
+            Ok(SortField::default())
+        );
+    }
+
+    #[test]
+    fn deduce_sort_last_wins() {
+        assert_eq!(sort_field(vec!["-St"]), Ok(SortField::ModifiedAge));
+        assert_eq!(sort_field(vec!["-tS"]), Ok(SortField::Size));
+        assert_eq!(
+            sort_field(vec!["-t", "--sort=name"]),
+            Ok(SortField::default())
+        );
+        assert_eq!(
+            sort_field(vec!["--sort=name", "-t"]),
+            Ok(SortField::ModifiedAge)
+        );
+        assert_eq!(
+            sort_field(vec!["-t", "-S", "-t"]),
+            Ok(SortField::ModifiedAge)
+        );
+        assert_eq!(sort_field(vec!["-U", "-v"]), Ok(SortField::default()));
+        assert_eq!(sort_field(vec!["-X", "-f"]), Ok(SortField::Unsorted));
+        assert_eq!(
+            sort_field(vec!["-f", "-X"]),
+            Ok(SortField::Extension(SortCase::AaBbCc))
+        );
+        assert_eq!(
+            sort_field(vec!["--sort=size", "--sort=time"]),
+            Ok(SortField::ModifiedAge)
+        );
+    }
+
+    #[test]
+    fn deduce_sort_strict() {
+        let strict = |args: Vec<&str>| SortField::deduce(&mock_cli(args), true);
+        assert_eq!(strict(vec!["-tt"]), Ok(SortField::ModifiedAge));
+        assert_eq!(strict(vec!["-cc", "-t"]), Ok(SortField::ChangedAge));
+        assert_eq!(strict(vec!["-t", "-u"]), Ok(SortField::AccessedAge));
+        assert_eq!(
+            strict(vec!["-t", "-S"]),
+            Err(OptionsError::Conflict("sort-time", "sort-size"))
+        );
+        assert_eq!(
+            strict(vec!["-t", "--sort=name"]),
+            Err(OptionsError::Conflict("sort", "sort-time"))
+        );
+        assert_eq!(
+            strict(vec!["-c", "-u"]),
+            Err(OptionsError::Conflict("ctime", "atime"))
+        );
+        assert_eq!(
+            strict(vec!["-u", "--time=atime"]),
+            Err(OptionsError::Conflict("time", "atime"))
+        );
+    }
+
+    #[test]
     fn deduce_sort_field_default() {
         assert_eq!(
-            mock_cli(vec![""]).get_one::<SortField>("sort"),
-            Some(&SortField::default())
+            mock_cli(vec![""]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::default()))
         );
     }
 
     #[test]
     fn deduce_sort_field_name() {
         assert_eq!(
-            mock_cli(vec!["--sort", "name"]).get_one::<SortField>("sort"),
-            Some(&SortField::Name(SortCase::AaBbCc))
+            mock_cli(vec!["--sort", "name"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Name(SortCase::AaBbCc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_name_case() {
         assert_eq!(
-            mock_cli(vec!["--sort", "Name"]).get_one::<SortField>("sort"),
-            Some(&SortField::Name(SortCase::ABCabc))
+            mock_cli(vec!["--sort", "Name"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Name(SortCase::ABCabc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_name_mix_hidden() {
         assert_eq!(
-            mock_cli(vec!["--sort", ".name"]).get_one::<SortField>("sort"),
-            Some(&SortField::NameMixHidden(SortCase::AaBbCc))
+            mock_cli(vec!["--sort", ".name"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::NameMixHidden(SortCase::AaBbCc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_name_mix_hidden_case() {
         assert_eq!(
-            mock_cli(vec!["--sort", ".Name"]).get_one::<SortField>("sort"),
-            Some(&SortField::NameMixHidden(SortCase::ABCabc))
+            mock_cli(vec!["--sort", ".Name"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::NameMixHidden(SortCase::ABCabc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_size() {
         assert_eq!(
-            mock_cli(vec!["--sort", "size"]).get_one::<SortField>("sort"),
-            Some(&SortField::Size)
+            mock_cli(vec!["--sort", "size"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Size))
         );
     }
 
     #[test]
     fn deduce_sort_field_extension() {
         assert_eq!(
-            mock_cli(vec!["--sort", "ext"]).get_one::<SortField>("sort"),
-            Some(&SortField::Extension(SortCase::AaBbCc))
+            mock_cli(vec!["--sort", "ext"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Extension(SortCase::AaBbCc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_extension_case() {
         assert_eq!(
-            mock_cli(vec!["--sort", "Ext"]).get_one::<SortField>("sort"),
-            Some(&SortField::Extension(SortCase::ABCabc))
+            mock_cli(vec!["--sort", "Ext"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Extension(SortCase::ABCabc)))
         );
     }
 
     #[test]
     fn deduce_sort_field_date() {
         assert_eq!(
-            mock_cli(vec!["--sort", "date"]).get_one::<SortField>("sort"),
-            Some(&SortField::ModifiedDate)
+            mock_cli(vec!["--sort", "date"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::ModifiedDate))
         );
     }
 
     #[test]
     fn deduce_sort_field_time() {
         assert_eq!(
-            mock_cli(vec!["--sort", "time"]).get_one::<SortField>("sort"),
-            Some(&SortField::ModifiedDate)
+            mock_cli(vec!["--sort", "time"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Time)
         );
+    }
+
+    #[test]
+    fn deduce_sort_field_mod() {
+        assert_eq!(
+            mock_cli(vec!["--sort", "mod"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::ModifiedDate))
+        );
+    }
+
+    #[test]
+    fn deduce_sort_field_version() {
+        assert_eq!(
+            mock_cli(vec!["--sort", "version"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Name(SortCase::AaBbCc)))
+        );
+    }
+
+    #[test]
+    fn deduce_sort_field_extension_word() {
+        assert_eq!(
+            mock_cli(vec!["--sort", "extension"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::Extension(SortCase::AaBbCc)))
+        );
+    }
+
+    #[test]
+    fn deduce_sort_field_width_err() {
+        assert!(mock_cli_try(vec!["--sort", "width"]).is_err());
     }
 
     #[test]
     fn deduce_sort_field_age() {
         assert_eq!(
-            mock_cli(vec!["--sort", "age"]).get_one::<SortField>("sort"),
-            Some(&SortField::ModifiedAge)
+            mock_cli(vec!["--sort", "age"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::ModifiedAge))
         );
     }
 
     #[test]
     fn deduce_sort_field_old() {
         assert_eq!(
-            mock_cli(vec!["--sort", "old"]).get_one::<SortField>("sort"),
-            Some(&SortField::ModifiedAge)
+            mock_cli(vec!["--sort", "old"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::ModifiedAge))
         );
     }
 
     #[test]
     fn deduce_sort_field_ch() {
         assert_eq!(
-            mock_cli(vec!["--sort", "ch"]).get_one::<SortField>("sort"),
-            Some(&SortField::ChangedDate)
+            mock_cli(vec!["--sort", "ch"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::ChangedDate))
         );
     }
 
     #[test]
     fn deduce_sort_field_acc() {
         assert_eq!(
-            mock_cli(vec!["--sort", "acc"]).get_one::<SortField>("sort"),
-            Some(&SortField::AccessedDate)
+            mock_cli(vec!["--sort", "acc"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::AccessedDate))
         );
     }
 
     #[test]
     fn deduce_sort_field_cr() {
         assert_eq!(
-            mock_cli(vec!["--sort", "cr"]).get_one::<SortField>("sort"),
-            Some(&SortField::CreatedDate)
+            mock_cli(vec!["--sort", "cr"]).get_one::<SortArg>("sort"),
+            Some(&SortArg::Field(SortField::CreatedDate))
         );
     }
 
@@ -517,6 +881,22 @@ mod tests {
                 flags: vec![FileFilterFlags::OnlyFiles],
                 sort_field: SortField::default(),
                 dot_filter: DotFilter::JustFiles,
+                ignore_patterns: IgnorePatterns::empty(),
+                git_ignore: GitIgnore::Off,
+                no_symlinks: false,
+                show_symlinks: false,
+            })
+        );
+    }
+
+    #[test]
+    fn deduce_file_filter_unsorted_all() {
+        assert_eq!(
+            FileFilter::deduce(&mock_cli(vec!["-f"]), false),
+            Ok(FileFilter {
+                flags: vec![],
+                sort_field: SortField::Unsorted,
+                dot_filter: DotFilter::DotfilesAndDots,
                 ignore_patterns: IgnorePatterns::empty(),
                 git_ignore: GitIgnore::Off,
                 no_symlinks: false,

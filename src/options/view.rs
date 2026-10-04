@@ -21,6 +21,7 @@ use crate::output::table::{
 use crate::output::time::TimeFormat;
 use crate::output::{Mode, TerminalWidth, View, code, details, grid};
 
+use super::filter::{TIME_ARGS, last_given};
 use super::parser::{ColorScaleArgs, TimeArgs};
 
 impl View {
@@ -453,6 +454,10 @@ impl TimeTypes {
     /// flag (such as `--modified`) or with a parameter (such as
     /// `--time=modified`). An error is signaled if both ways are used.
     ///
+    /// Like `ls`, `-c` and `-u` show the changed or accessed time instead of
+    /// the modified time. They combine with the flags, and out of `-c`, `-u`
+    /// and `--time`, the last one given wins.
+    ///
     /// It’s valid to show more than one column by passing in more than one
     /// option, but passing *no* options means that the user just wants to
     /// see the default set.
@@ -464,6 +469,13 @@ impl TimeTypes {
         let created = matches.get_flag("created");
 
         let no_time = matches.get_flag("no-time");
+
+        let time_arg = last_given(matches, TIME_ARGS);
+        let possible_word = if time_arg == Some("time") {
+            possible_word
+        } else {
+            None
+        };
 
         #[rustfmt::skip]
         let time_types = if no_time {
@@ -492,6 +504,13 @@ impl TimeTypes {
                 Self { modified: false, changed: false, accessed: false, created: true  }
             } else {
                 return Err(OptionsError::BadArgument("time", word.to_possible_value().unwrap().get_name().into()));
+            }
+        } else if let Some(arg) = time_arg {
+            Self {
+                modified,
+                changed: changed || arg == "ctime",
+                accessed: accessed || arg == "atime",
+                created,
             }
         } else if modified || changed || accessed || created {
             Self {
@@ -674,6 +693,107 @@ mod tests {
                 ..TimeTypes::default()
             })
         );
+    }
+
+    fn only_time(field: &str) -> TimeTypes {
+        TimeTypes {
+            modified: field == "modified",
+            changed: field == "changed",
+            accessed: field == "accessed",
+            created: field == "created",
+        }
+    }
+
+    #[test]
+    fn deduce_time_types_ctime() {
+        for args in [vec!["-c"], vec!["--ctime"], vec!["-cc"], vec!["-l", "-c"]] {
+            assert_eq!(
+                TimeTypes::deduce(&mock_cli(args.clone())),
+                Ok(only_time("changed")),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_time_types_atime() {
+        for args in [
+            vec!["-u"],
+            vec!["--atime"],
+            vec!["-uu"],
+            vec!["--accessed", "-u"],
+        ] {
+            assert_eq!(
+                TimeTypes::deduce(&mock_cli(args.clone())),
+                Ok(only_time("accessed")),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_time_types_ls_words() {
+        for (word, field) in [
+            ("mtime", "modified"),
+            ("modification", "modified"),
+            ("ctime", "changed"),
+            ("status", "changed"),
+            ("atime", "accessed"),
+            ("access", "accessed"),
+            ("use", "accessed"),
+            ("birth", "created"),
+            ("creation", "created"),
+        ] {
+            assert_eq!(
+                TimeTypes::deduce(&mock_cli(vec!["--time", word])),
+                Ok(only_time(field)),
+                "{word}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_time_types_last_wins() {
+        assert_eq!(
+            TimeTypes::deduce(&mock_cli(vec!["-c", "-u"])),
+            Ok(only_time("accessed"))
+        );
+        assert_eq!(
+            TimeTypes::deduce(&mock_cli(vec!["-u", "-c"])),
+            Ok(only_time("changed"))
+        );
+        assert_eq!(
+            TimeTypes::deduce(&mock_cli(vec!["--time=cr", "-u"])),
+            Ok(only_time("accessed"))
+        );
+        assert_eq!(
+            TimeTypes::deduce(&mock_cli(vec!["-u", "--time=cr"])),
+            Ok(only_time("created"))
+        );
+    }
+
+    #[test]
+    fn deduce_time_types_ctime_with_flags() {
+        assert_eq!(
+            TimeTypes::deduce(&mock_cli(vec!["--modified", "-c"])),
+            Ok(TimeTypes {
+                modified: true,
+                changed: true,
+                accessed: false,
+                created: false,
+            })
+        );
+    }
+
+    #[test]
+    fn deduce_time_types_sort_flags_keep_default() {
+        for args in [vec!["-t"], vec!["-S"], vec!["--sort=time"]] {
+            assert_eq!(
+                TimeTypes::deduce(&mock_cli(args.clone())),
+                Ok(TimeTypes::default()),
+                "{args:?}"
+            );
+        }
     }
 
     #[test]

@@ -14,12 +14,13 @@ use crate::{
 };
 
 const SORT_FIELDS_HELP: &str = "[default: name] [possible values:
-  name, Name, .name, .Name, ext, ext, created,
-  date, age, accessed, changed,
-  size, inode, type, none]";
+  name, Name, .name, .Name, ext, Ext, extension, version, created,
+  date, age, accessed, changed, time (newest first),
+  size (largest first), inode, type, none]";
 
 const TIME_FIELDS_HELP: &str = "[possible values:
-  mod|modified, acc|accessed, ch|changed, cr|created]";
+  mod|modified|mtime, acc|accessed|atime|access|use,
+  ch|changed|ctime|status, cr|created|birth|creation]";
 
 const FORMAT_STYLE_FIELDS_HELP: &str = "[possible values:
   default, iso, long-iso, full-iso, relative, \"+<CUSTOM_FORMAT>\"]";
@@ -100,6 +101,7 @@ pub fn get_command() -> clap::Command {
 
         .next_help_heading("FILTERING OPTIONS")
         .arg(arg!(-a --all... "show hidden files and the '.' and '..' directories"))
+        .arg(arg!(-f --"unsorted-all" "like -a, and do not sort"))
         .arg(arg!(-A --"almost-all" "show hidden files, but not '.' and '..'"))
         .arg(arg!(-d --"treat-dirs-as-files" "treat directories as files; don't list their contents")
             .alias("list-dirs") // TODO: compat alias to remove (above flag published in v0.23.4 / 2025-10-03)
@@ -114,9 +116,16 @@ pub fn get_command() -> clap::Command {
         .next_help_heading("SORTING OPTIONS")
         .arg(arg!(--"group-directories-first" "list directories before other files").id("dirs-first"))
         .arg(arg!(--"group-directories-last" "list directories after other files").id("dirs-last"))
+        .arg(arg!(-t --"sort-time" "sort by time, newest first (see --time, -c, -u)"))
+        .arg(arg!(-S --"sort-size" "sort by file size, largest first"))
+        .arg(arg!(-U --unsorted "do not sort; list entries in directory order"))
+        .arg(arg!(-X --"sort-extension" "sort alphabetically by entry extension"))
+        .arg(arg!(-v --"sort-version" "natural sort of (version) numbers within names"))
+        .arg(arg!(-c --ctime "with -t: sort by changed time; with -l: show it; otherwise: sort by it"))
+        .arg(arg!(-u --atime "with -t: sort by accessed time; with -l: show it; otherwise: sort by it"))
         .arg(arg!(--sort <FIELD>)
             .help(format!("which field to sort by {SORT_FIELDS_HELP}"))
-            .value_parser(value_parser!(SortField))
+            .value_parser(value_parser!(SortArg))
             .default_value("name")
             .hide_default_value(true)
             .hide_possible_values(true))
@@ -140,7 +149,7 @@ pub fn get_command() -> clap::Command {
         .arg(arg!(--group "list each file's group"))
         .arg(arg!(--"smart-group" "only show group if it has a different name from owner"))
         .arg(arg!(--numeric "show user and group as their numeric IDs"))
-        .arg(arg!(--time <FIELD>).help(format!("which timestamp field to show {TIME_FIELDS_HELP}"))
+        .arg(arg!(--time <FIELD>).help(format!("which timestamp field to show and sort by {TIME_FIELDS_HELP}"))
             .value_parser(value_parser!(TimeArgs))
             .conflicts_with_all(["modified", "accessed", "changed", "created"])
             .hide_possible_values(true))
@@ -222,53 +231,78 @@ pub enum CodeContent {
     Both,
 }
 
-impl ValueEnum for SortField {
+/// The value given to `--sort`: either a field to sort by, or `time`, whose
+/// field is picked by `--time`, `--ctime` and `--atime` like `ls`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SortArg {
+    Field(SortField),
+    Time,
+}
+
+impl ValueEnum for SortArg {
     fn value_variants<'a>() -> &'a [Self] {
         &[
-            Self::Name(SortCase::AaBbCc),
-            Self::Name(SortCase::ABCabc),
-            Self::NameMixHidden(SortCase::AaBbCc),
-            Self::NameMixHidden(SortCase::ABCabc),
-            Self::Size,
-            Self::Extension(SortCase::AaBbCc),
-            Self::Extension(SortCase::ABCabc),
-            Self::ModifiedDate,
-            Self::ModifiedAge,
-            Self::ChangedDate,
-            Self::AccessedDate,
-            Self::CreatedDate,
+            Self::Field(SortField::Name(SortCase::AaBbCc)),
+            Self::Field(SortField::Name(SortCase::ABCabc)),
+            Self::Field(SortField::NameMixHidden(SortCase::AaBbCc)),
+            Self::Field(SortField::NameMixHidden(SortCase::ABCabc)),
+            Self::Field(SortField::Size),
+            Self::Field(SortField::Extension(SortCase::AaBbCc)),
+            Self::Field(SortField::Extension(SortCase::ABCabc)),
+            Self::Time,
+            Self::Field(SortField::ModifiedDate),
+            Self::Field(SortField::ModifiedAge),
+            Self::Field(SortField::ChangedDate),
+            Self::Field(SortField::AccessedDate),
+            Self::Field(SortField::CreatedDate),
             #[cfg(unix)]
-            Self::FileInode,
-            Self::FileType,
-            Self::Unsorted,
+            Self::Field(SortField::FileInode),
+            Self::Field(SortField::FileType),
+            Self::Field(SortField::Unsorted),
         ]
     }
 
     fn to_possible_value(&self) -> Option<PossibleValue> {
         Some(match self {
-            Self::Name(SortCase::AaBbCc) => PossibleValue::new("name").alias("filename"),
-            Self::Name(SortCase::ABCabc) => PossibleValue::new("Name").alias("Filename"),
-            Self::NameMixHidden(SortCase::AaBbCc) => PossibleValue::new(".name").alias(".filename"),
-            Self::NameMixHidden(SortCase::ABCabc) => PossibleValue::new(".Name").alias(".Filename"),
-            Self::Size => PossibleValue::new("size"),
-            Self::Extension(SortCase::AaBbCc) => PossibleValue::new("ext").alias("extension"),
-            Self::Extension(SortCase::ABCabc) => PossibleValue::new("Ext").alias("Extension"),
+            // “version” is the natural sort `ls -v` does, which eza does by default.
+            Self::Field(SortField::Name(SortCase::AaBbCc)) => {
+                PossibleValue::new("name").aliases(vec!["filename", "version"])
+            }
+            Self::Field(SortField::Name(SortCase::ABCabc)) => {
+                PossibleValue::new("Name").alias("Filename")
+            }
+            Self::Field(SortField::NameMixHidden(SortCase::AaBbCc)) => {
+                PossibleValue::new(".name").alias(".filename")
+            }
+            Self::Field(SortField::NameMixHidden(SortCase::ABCabc)) => {
+                PossibleValue::new(".Name").alias(".Filename")
+            }
+            Self::Field(SortField::Size) => PossibleValue::new("size"),
+            Self::Field(SortField::Extension(SortCase::AaBbCc)) => {
+                PossibleValue::new("ext").alias("extension")
+            }
+            Self::Field(SortField::Extension(SortCase::ABCabc)) => {
+                PossibleValue::new("Ext").alias("Extension")
+            }
+            Self::Time => PossibleValue::new("time"),
             // “new” sorts oldest at the top and newest at the bottom; “old” sorts newest at the
-            // top and oldest at the bottom. I think this is the right way round to do this:
-            // “size” puts the smallest at  the top and the largest at the bottom, doesn’t it?
-            Self::ModifiedDate => {
-                PossibleValue::new("date").aliases(vec!["time", "mod", "modified", "new", "newest"])
+            // top and oldest at the bottom.
+            Self::Field(SortField::ModifiedDate) => {
+                PossibleValue::new("date").aliases(vec!["mod", "modified", "new", "newest"])
             }
             // Similarly, “age” means that files with the least age (the newest files) get sorted
             //  at the top, and files with the most age (the oldest) at the bottom.
-            Self::ModifiedAge => PossibleValue::new("age").aliases(vec!["old", "oldest"]),
-            Self::ChangedDate => PossibleValue::new("changed").alias("ch"),
-            Self::AccessedDate => PossibleValue::new("accessed").alias("acc"),
-            Self::CreatedDate => PossibleValue::new("created").alias("cr"),
+            Self::Field(SortField::ModifiedAge) => {
+                PossibleValue::new("age").aliases(vec!["old", "oldest"])
+            }
+            Self::Field(SortField::ChangedDate) => PossibleValue::new("changed").alias("ch"),
+            Self::Field(SortField::AccessedDate) => PossibleValue::new("accessed").alias("acc"),
+            Self::Field(SortField::CreatedDate) => PossibleValue::new("created").alias("cr"),
             #[cfg(unix)]
-            Self::FileInode => PossibleValue::new("inode"),
-            Self::FileType => PossibleValue::new("type"),
-            Self::Unsorted => PossibleValue::new("none"),
+            Self::Field(SortField::FileInode) => PossibleValue::new("inode"),
+            Self::Field(SortField::FileType) => PossibleValue::new("type"),
+            Self::Field(SortField::Unsorted) => PossibleValue::new("none"),
+            Self::Field(_) => return None,
         })
     }
 }
@@ -288,10 +322,14 @@ impl ValueEnum for TimeArgs {
 
     fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
         Some(match self {
-            Self::Modified => PossibleValue::new("modified").alias("mod"),
-            Self::Changed => PossibleValue::new("changed").alias("ch"),
-            Self::Accessed => PossibleValue::new("accessed").alias("acc"),
-            Self::Created => PossibleValue::new("created").alias("cr"),
+            Self::Modified => {
+                PossibleValue::new("modified").aliases(vec!["mod", "mtime", "modification"])
+            }
+            Self::Changed => PossibleValue::new("changed").aliases(vec!["ch", "ctime", "status"]),
+            Self::Accessed => {
+                PossibleValue::new("accessed").aliases(vec!["acc", "atime", "access", "use"])
+            }
+            Self::Created => PossibleValue::new("created").aliases(vec!["cr", "birth", "creation"]),
         })
     }
 }
