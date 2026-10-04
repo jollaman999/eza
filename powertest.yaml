@@ -9,7 +9,7 @@ commands:
   ? - null # Meta options
     - --help
   :
-  ? - -v
+  ? - null
     - --version
   :
   ? - -1 # Display Options
@@ -18,7 +18,7 @@ commands:
   ? - -l
     - --long
   :
-  ? - -G
+  ? - null
     - --grid
   :
   ? - -x
@@ -27,10 +27,10 @@ commands:
   ? - -R
     - --recurse
   :
-  ? - -T
+  ? - null
     - --tree
   :
-  ? - -X
+  ? - -L
     - --dereference
   :
   ? - -F
@@ -102,9 +102,9 @@ commands:
   ? - null
     - --treat-dirs-as-files
   :
-  ? - -L # Hidden alias
+  ? - null # Hidden alias
     - --level
-  : prefix: -T
+  : prefix: --tree
     values:
       - 0
       - 1
@@ -115,7 +115,7 @@ commands:
   ? - -r
     - --reverse
   :
-  ? - -s
+  ? - null
     - --sort
   : short: -s
     long: time-style
@@ -148,13 +148,13 @@ commands:
   ? - null
     - --group-directories-last
   :
-  ? - -D
+  ? - null
     - --only-dirs
   :
-  ? - -f
+  ? - null
     - --only-files
   :
-  ? - -f
+  ? - null
     - --only-files
   :
   ? - -I # TODO: add more globs
@@ -165,19 +165,19 @@ commands:
   ? - null
     - --git-ignore
   :
-  ? - -b # Long View Options
+  ? - null # Long View Options
     - --binary
   :
-  ? - -B
+  ? - null
     - --bytes
   :
-  ? - -g
+  ? - null
     - --group
   :
-  ? - -h
+  ? - null
     - --header
   :
-  ? - -H
+  ? - null
     - --links
   :
   ? - -i
@@ -189,19 +189,19 @@ commands:
   ? - null
     - --code
   :
-  ? - -m
+  ? - null
     - --modified
   :
   ? - -M
     - --mounts
   :
-  ? - -n
+  ? - null
     - --numeric
   :
-  ? - -S
+  ? - null
     - --blocksize
   :
-  ? - -t
+  ? - null
     - --time
   : prefix: -l
     values:
@@ -209,10 +209,10 @@ commands:
       #- accessed BROKEN
       #- changed
       #- created
-  ? - -u
+  ? - null
     - --accessed
   :
-  ? - -U
+  ? - null
     - --created
   :
   ? - null
@@ -233,7 +233,7 @@ commands:
   ? - null
     - --no-permissions
   :
-  ? - -o
+  ? - null
     - --octal-permissions
   :
   ? - null

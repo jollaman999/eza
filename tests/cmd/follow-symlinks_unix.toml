@@ -1,2 +1,2 @@
 bin.name = "eza"
-args = "tests/itest --follow-symlinks -T"
+args = "tests/itest --follow-symlinks --tree"
