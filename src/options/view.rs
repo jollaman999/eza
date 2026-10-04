@@ -22,6 +22,18 @@ use crate::output::time::TimeFormat;
 use crate::output::{Mode, TerminalWidth, View, code, details, grid};
 
 use super::filter::{TIME_ARGS, last_given};
+
+/// The options that turn on the long view: `--long`, and the `ls` options
+/// that imply it.
+const LONG_ARGS: &[&str] = &["long", "long-no-owner", "long-no-group", "numeric-uid-gid"];
+
+/// Whether one of the options that turn on the long view was given.
+pub(super) fn long_given(matches: &ArgMatches) -> bool {
+    LONG_ARGS.iter().any(|id| matches.get_flag(id))
+}
+
+/// The options that pick the file size format. The last one given wins.
+const SIZE_FORMAT_ARGS: &[&str] = &["human-readable", "binary", "bytes"];
 use super::parser::{ColorScaleArgs, TimeArgs};
 
 impl View {
@@ -69,7 +81,7 @@ impl Mode {
             return Ok(Self::Code(code::Options { content }));
         }
 
-        let long = matches.get_flag("long");
+        let long = long_given(matches);
         let oneline = matches.get_flag("oneline");
         let grid = matches.get_flag("grid");
         let tree = matches.get_flag("tree");
@@ -276,8 +288,10 @@ impl Columns {
             && !no_git_env;
 
         let file_flags = matches.get_flag("file-flags");
-        let blocksize = matches.get_flag("blocksize");
-        let group = matches.get_flag("group");
+        let blocksize = matches.get_flag("blocksize") || matches.get_flag("size");
+        let group = (matches.get_flag("group") || matches.get_flag("long-no-owner"))
+            && !matches.get_flag("long-no-group")
+            && !matches.get_flag("no-group");
         let inode = matches.get_flag("inode");
         let links = matches.get_flag("links");
         let octal = matches.get_flag("octal-permissions");
@@ -285,7 +299,7 @@ impl Columns {
 
         let permissions = !matches.get_flag("no-permissions");
         let filesize = !matches.get_flag("no-filesize");
-        let user = !matches.get_flag("no-user");
+        let user = !matches.get_flag("no-user") && !matches.get_flag("long-no-owner");
 
         let loc = matches.get_one::<CodeContent>("loc").copied();
 
@@ -316,16 +330,14 @@ impl SizeFormat {
     /// The default mode is to use the decimal prefixes, as they are the
     /// most commonly-understood, and don’t involve trying to parse large
     /// strings of digits in your head. Changing the format to anything else
-    /// involves the `--binary` or `--bytes` flags, and these conflict with
-    /// each other.
+    /// involves the `-h`, `--binary` or `--bytes` flags, and out of these the
+    /// last one given wins.
     fn deduce(matches: &ArgMatches) -> Self {
         use SizeFormat::*;
-        if matches.get_flag("binary") {
-            BinaryBytes
-        } else if matches.get_flag("bytes") {
-            JustBytes
-        } else {
-            DecimalBytes
+        match last_given(matches, SIZE_FORMAT_ARGS) {
+            Some("human-readable" | "binary") => BinaryBytes,
+            Some("bytes") => JustBytes,
+            _ => DecimalBytes,
         }
     }
 }
@@ -428,7 +440,7 @@ impl TimeFormat {
 
 impl UserFormat {
     fn deduce(matches: &ArgMatches) -> Self {
-        if matches.get_flag("numeric") {
+        if matches.get_flag("numeric") || matches.get_flag("numeric-uid-gid") {
             Self::Numeric
         } else {
             Self::Name
@@ -847,6 +859,119 @@ mod tests {
             SizeFormat::deduce(&mock_cli(vec!["--binary"])),
             SizeFormat::BinaryBytes
         );
+    }
+
+    #[test]
+    fn deduce_size_format_human_readable() {
+        for args in [vec!["-h"], vec!["--human-readable"], vec!["-l", "-h"]] {
+            assert_eq!(
+                SizeFormat::deduce(&mock_cli(args.clone())),
+                SizeFormat::BinaryBytes,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_size_format_last_wins() {
+        for (args, format) in [
+            (vec!["-h", "--bytes"], SizeFormat::JustBytes),
+            (vec!["--bytes", "-h"], SizeFormat::BinaryBytes),
+            (vec!["--binary", "--bytes"], SizeFormat::JustBytes),
+            (vec!["--bytes", "--binary"], SizeFormat::BinaryBytes),
+            (vec!["--bytes", "-h", "--bytes"], SizeFormat::JustBytes),
+        ] {
+            assert_eq!(
+                SizeFormat::deduce(&mock_cli(args.clone())),
+                format,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_user_format_numeric_uid_gid() {
+        for args in [vec!["-n"], vec!["--numeric-uid-gid"], vec!["-gn"]] {
+            assert_eq!(
+                UserFormat::deduce(&mock_cli(args.clone())),
+                UserFormat::Numeric,
+                "{args:?}"
+            );
+        }
+    }
+
+    fn columns(args: Vec<&str>) -> Columns {
+        Columns::deduce(&mock_cli(args), &MockVars::default()).unwrap()
+    }
+
+    #[test]
+    fn deduce_columns_size() {
+        assert!(!columns(vec!["-l"]).blocksize);
+        assert!(columns(vec!["-ls"]).blocksize);
+        assert!(columns(vec!["--size"]).blocksize);
+        assert!(columns(vec!["--blocksize"]).blocksize);
+    }
+
+    #[test]
+    fn deduce_columns_user_and_group() {
+        for (args, user, group) in [
+            (vec!["-l"], true, false),
+            (vec!["-l", "--group"], true, true),
+            (vec!["-g"], false, true),
+            (vec!["--long-no-owner"], false, true),
+            (vec!["-o"], true, false),
+            (vec!["--long-no-group"], true, false),
+            (vec!["-o", "--group"], true, false),
+            (vec!["-go"], false, false),
+            (vec!["-lG"], true, false),
+            (vec!["-gG"], false, false),
+            (vec!["-Gg"], false, false),
+            (vec!["--no-group", "--group"], true, false),
+            (vec!["--group", "--no-group"], true, false),
+            (vec!["--group", "--smart-group", "-G"], true, false),
+            (vec!["-n"], true, false),
+            (vec!["-gn"], false, true),
+        ] {
+            let columns = columns(args.clone());
+            assert_eq!((columns.user, columns.group), (user, group), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn deduce_mode_long_implied() {
+        for args in [
+            vec!["-g"],
+            vec!["--long-no-owner"],
+            vec!["-o"],
+            vec!["--long-no-group"],
+            vec!["-n"],
+            vec!["--numeric-uid-gid"],
+        ] {
+            assert!(
+                matches!(
+                    Mode::deduce(&mock_cli(args.clone()), &MockVars::default(), false, false),
+                    Ok(Mode::Details(details::Options { table: Some(_), .. }))
+                ),
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn deduce_mode_long_not_implied() {
+        for args in [
+            vec!["--numeric"],
+            vec!["-G"],
+            vec!["-h"],
+            vec!["-s"],
+            vec!["--group"],
+        ] {
+            assert_eq!(
+                Mode::deduce(&mock_cli(args.clone()), &MockVars::default(), false, false),
+                Ok(Mode::Lines),
+                "{args:?}"
+            );
+        }
     }
 
     #[test]

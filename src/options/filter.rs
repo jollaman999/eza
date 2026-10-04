@@ -16,6 +16,7 @@ use crate::fs::filter::{
 
 use crate::options::OptionsError;
 use crate::options::parser::{SortArg, TimeArgs};
+use crate::options::view::long_given;
 
 /// The options that pick a sort order. The last one given wins.
 const SORT_ARGS: &[&str] = &[
@@ -115,7 +116,7 @@ impl SortField {
                 Some(SortArg::Time) => Self::newest_first(matches),
                 None => Self::default(),
             },
-            None if last_given(matches, TIME_ARGS).is_some() && !matches.get_flag("long") => {
+            None if last_given(matches, TIME_ARGS).is_some() && !long_given(matches) => {
                 Self::newest_first(matches)
             }
             None => Self::default(),
@@ -608,6 +609,13 @@ mod tests {
         assert_eq!(sort_field(vec!["-1", "-u"]), Ok(SortField::AccessedAge));
         assert_eq!(sort_field(vec!["-lc"]), Ok(SortField::default()));
         assert_eq!(sort_field(vec!["-lu"]), Ok(SortField::default()));
+        for args in [vec!["-gc"], vec!["-oc"], vec!["-nc"], vec!["-u", "-g"]] {
+            assert_eq!(
+                sort_field(args.clone()),
+                Ok(SortField::default()),
+                "{args:?}"
+            );
+        }
         assert_eq!(
             sort_field(vec!["-l", "--time=atime"]),
             Ok(SortField::default())
