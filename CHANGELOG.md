@@ -6,6 +6,21 @@ SPDX-License-Identifier: EUPL-1.2
 -->
 # Changelog
 
+## [0.24.1] - 2026-10-04
+
+### Bug Fixes
+
+- Take optional values of --icons, --color and friends only after =
+
+### Documentation
+
+- Show that --color-scale takes its fields after =
+- Point README and INSTALL at this fork
+
+### Build
+
+- Pin palette_derive to 0.7.6
+
 ## [0.24.0] - 2026-10-04
 
 ### Features

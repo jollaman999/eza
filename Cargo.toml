@@ -26,10 +26,10 @@ exclude = [
   "/.pre-commit-config-non-nix.yaml",
 ]
 readme = "README.md"
-homepage = "https://github.com/eza-community/eza"
+homepage = "https://github.com/jollaman999/eza"
 license = "EUPL-1.2"
-repository = "https://github.com/eza-community/eza"
-version = "0.24.0"
+repository = "https://github.com/jollaman999/eza"
+version = "0.24.1"
 
 
 [package.metadata.deb]
